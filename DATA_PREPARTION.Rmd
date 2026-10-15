@@ -1,0 +1,3121 @@
+---
+title: "QC_Trophoblasts"
+output: html_document
+date: "2023-04-11"
+---
+
+```{r}
+library(rmarkdown)
+library(Matrix)
+library(Seurat)
+library(SingleCellExperiment)
+library(tidyverse)
+library(scales)
+library(cowplot)
+library(dplyr)
+library(ggplot2)
+library(scDblFinder)
+library(sctransform)
+library(ggraph)
+library(clustree)
+library(plotly)
+library(RCurl)
+library(harmony)
+library(biomaRt)
+library(AnnotationHub)
+library(ensembldb)
+```
+
+```{r}
+#Read in 10x Data for sample 227 (P1) and convert to Seurat object
+placenta1 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P1")
+placenta1 <- CreateSeuratObject (counts = placenta1, min.features = 100, project = "placenta1", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 227 (P1)
+placenta1 <- AddMetaData        (object = placenta1, metadata = "B_P227",             col.name = "ID"     )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "B_P227",            col.name = "rawID"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "in vivo",            col.name = "Type"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "1",                col.name = "Batch"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "MPI",                col.name = "Model"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "0",                col.name = "nSex"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "Female",                col.name = "Sex"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "11.4",                col.name = "rawGA"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "Late",                col.name = "binGA"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "Placenta",                col.name = "Tissue"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta1 <- AddMetaData        (object = placenta1, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 227 (P1)
+placenta1 [["percent.mt"]]   <- PercentageFeatureSet (placenta1, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta1), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta1, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta1, slot   = 'counts')              );
+placenta1 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 227 (P1) 
+VlnPlot(placenta1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 227 (P1)
+filtered_placenta1 <- subset(placenta1, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta1_SCE <- as.SingleCellExperiment(filtered_placenta1)
+#Performing scDblFinder
+placenta1_SCE <- scDblFinder(placenta1_SCE, dbr = 0.025, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta1$scDblFinder.score <- placenta1_SCE$scDblFinder.score
+filtered_placenta1$scDblFinder.class <- placenta1_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta1 <- subset (filtered_placenta1, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 227 (P1)
+filtered_placenta1 <- NormalizeData(filtered_placenta1)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 227 (P1)
+filtered_placenta1 <- CellCycleScoring   (filtered_placenta1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 227 (P1)
+filtered_placenta1 <- FindVariableFeatures(filtered_placenta1, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 227 (P1)
+all.genes <- rownames(filtered_placenta1)
+filtered_placenta1 <- ScaleData(filtered_placenta1, features = all.genes)
+
+#Run PCA sample 227 (P1)
+filtered_placenta1 <- RunPCA(filtered_placenta1)
+
+#Elbowplot sample 227 (P1)
+ElbowPlot(filtered_placenta1, ndims=50)
+
+#Run UMAP sample 227 (P1)
+filtered_placenta1 <- RunUMAP(filtered_placenta1, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 227 (P1) after filtering
+Idents (filtered_placenta1) <- filtered_placenta1@meta.data$ID
+VlnPlot(filtered_placenta1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 227 (P1)
+save(filtered_placenta1, file = "~/Objects/Samples_Filtered/filtered_placenta1.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 89 (P2) and convert to Seurat object
+placenta2 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P2")
+placenta2 <- CreateSeuratObject (counts = placenta2, min.features = 100, project = "placenta2", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 89 (P2)
+placenta2 <- AddMetaData        (object = placenta2, metadata = "B_P89",             col.name = "ID"     )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "B_P89",            col.name = "rawID"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "in vivo",            col.name = "Type"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "1",                col.name = "Batch"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "MPI",                col.name = "Model"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "0",                col.name = "nSex"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "Female",                col.name = "Sex"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "6.4",                col.name = "rawGA"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "Early",                col.name = "binGA"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "Placenta",                col.name = "Tissue"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta2 <- AddMetaData        (object = placenta2, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 89 (P2)
+placenta2 [["percent.mt"]]   <- PercentageFeatureSet (placenta2, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta2), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta2, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta2, slot   = 'counts')              );
+placenta2 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 89 (P2) 
+VlnPlot(placenta2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 89 (P2)
+filtered_placenta2 <- subset(placenta2, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta2_SCE <- as.SingleCellExperiment(filtered_placenta2)
+#Performing scDblFinder
+placenta2_SCE <- scDblFinder(placenta2_SCE, dbr = 0.031, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta2$scDblFinder.score <- placenta2_SCE$scDblFinder.score
+filtered_placenta2$scDblFinder.class <- placenta2_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta2 <- subset (filtered_placenta2, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 89 (P2)
+filtered_placenta2 <- NormalizeData(filtered_placenta2)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 89 (P2)
+filtered_placenta2 <- CellCycleScoring   (filtered_placenta2, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 89 (P2)
+filtered_placenta2 <- FindVariableFeatures(filtered_placenta2, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 89 (P2)
+all.genes <- rownames(filtered_placenta2)
+filtered_placenta2 <- ScaleData(filtered_placenta2, features = all.genes)
+
+#Run PCA sample 89 (P2)
+filtered_placenta2 <- RunPCA(filtered_placenta2)
+
+#Elbowplot sample 89 (P2)
+ElbowPlot(filtered_placenta2, ndims=50)
+
+#Run UMAP sample 89 (P2)
+filtered_placenta2 <- RunUMAP(filtered_placenta2, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 89 (P2) after filtering
+Idents (filtered_placenta2) <- filtered_placenta2@meta.data$ID
+VlnPlot(filtered_placenta2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 89 (P2) after Doublet Removal
+save(filtered_placenta2, file = "~/Objects/Samples_Filtered/filtered_placenta2.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 21 (P3) and convert to Seurat object
+placenta3 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P3")
+placenta3 <- CreateSeuratObject (counts = placenta3, min.features = 100, project = "placenta3", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 21 (P3)
+placenta3 <- AddMetaData        (object = placenta3, metadata = "B_P21",             col.name = "ID"     )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "B_P21",            col.name = "rawID"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "in vivo",            col.name = "Type"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "1",                col.name = "Batch"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "MPI",                col.name = "Model"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "0",                col.name = "nSex"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "Female",                col.name = "Sex"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "11.2",                col.name = "rawGA"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "Late",                col.name = "binGA"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "Placenta",                col.name = "Tissue"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta3 <- AddMetaData        (object = placenta3, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 21 (P3)
+placenta3 [["percent.mt"]]   <- PercentageFeatureSet (placenta3, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta3), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta3, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta3, slot   = 'counts')              );
+placenta3 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 21 (P3) 
+VlnPlot(placenta3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 21 (P3)
+filtered_placenta3 <- subset(placenta3, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta3_SCE <- as.SingleCellExperiment(filtered_placenta3)
+#Performing scDblFinder
+placenta3_SCE <- scDblFinder(placenta3_SCE, dbr = 0.029, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta3$scDblFinder.score <- placenta3_SCE$scDblFinder.score
+filtered_placenta3$scDblFinder.class <- placenta3_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta3 <- subset (filtered_placenta3, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 21 (P3)
+filtered_placenta3 <- NormalizeData(filtered_placenta3)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 21 (P3)
+filtered_placenta3 <- CellCycleScoring   (filtered_placenta3, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 21 (P3)
+filtered_placenta3 <- FindVariableFeatures(filtered_placenta3, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 21 (P3)
+all.genes <- rownames(filtered_placenta3)
+filtered_placenta3 <- ScaleData(filtered_placenta3, features = all.genes)
+
+#Run PCA sample 21 (P3)
+filtered_placenta3 <- RunPCA(filtered_placenta3)
+
+#Elbowplot sample 21 (P3)
+ElbowPlot(filtered_placenta3, ndims=50)
+
+#Run UMAP sample 21 (P3)
+filtered_placenta3 <- RunUMAP(filtered_placenta3, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 21 (P3) after filtering
+Idents (filtered_placenta3) <- filtered_placenta3@meta.data$ID
+VlnPlot(filtered_placenta3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 21 (P3) after Doublet Removal
+save(filtered_placenta3, file = "~/Objects/Samples_Filtered/filtered_placenta3.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 130 (P4) and convert to Seurat object
+placenta4 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P4")
+placenta4 <- CreateSeuratObject (counts = placenta4, min.features = 100, project = "placenta4", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 130 (P4)
+placenta4 <- AddMetaData        (object = placenta4, metadata = "B_P130",             col.name = "ID"     )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "B_P130",            col.name = "rawID"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "in vivo",            col.name = "Type"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "1",                col.name = "Batch"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "MPI",                col.name = "Model"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "1",                col.name = "nSex"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "Male",                col.name = "Sex"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "11.4",                col.name = "rawGA"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "Late",                col.name = "binGA"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "Placenta",                col.name = "Tissue"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta4 <- AddMetaData        (object = placenta4, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 130 (P4)
+placenta4 [["percent.mt"]]   <- PercentageFeatureSet (placenta4, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta4), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta4, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta4, slot   = 'counts')              );
+placenta4 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 130 (P4) 
+VlnPlot(placenta4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 130 (P4)
+filtered_placenta4 <- subset(placenta4, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta4_SCE <- as.SingleCellExperiment(filtered_placenta4)
+#Performing scDblFinder
+placenta4_SCE <- scDblFinder(placenta4_SCE, dbr = 0.031, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta4$scDblFinder.score <- placenta4_SCE$scDblFinder.score
+filtered_placenta4$scDblFinder.class <- placenta4_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta4 <- subset (filtered_placenta4, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 130 (P4)
+filtered_placenta4 <- NormalizeData(filtered_placenta4)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 130 (P4)
+filtered_placenta4 <- CellCycleScoring   (filtered_placenta4, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 130 (P4)
+filtered_placenta4 <- FindVariableFeatures(filtered_placenta4, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 130 (P4)
+all.genes <- rownames(filtered_placenta4)
+filtered_placenta4 <- ScaleData(filtered_placenta4, features = all.genes)
+
+#Run PCA sample 130 (P4)
+filtered_placenta4 <- RunPCA(filtered_placenta4)
+
+#Elbowplot sample 130 (P4)
+ElbowPlot(filtered_placenta4, ndims=50)
+
+#Run UMAP sample 130 (P4)
+filtered_placenta4 <- RunUMAP(filtered_placenta4, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 130 (P4) after filtering
+Idents (filtered_placenta4) <- filtered_placenta4@meta.data$ID
+VlnPlot(filtered_placenta4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 130 (P4) after Doublet Removal
+save(filtered_placenta4, file = "~/Objects/Samples_Filtered/filtered_placenta4.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 244 (P5) and convert to Seurat object
+placenta5 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P5")
+placenta5 <- CreateSeuratObject (counts = placenta5, min.features = 100, project = "placenta5", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 244 (P5)
+placenta5 <- AddMetaData        (object = placenta5, metadata = "B_P244",             col.name = "ID"     )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "B_P244",            col.name = "rawID"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "in vivo",            col.name = "Type"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "2",                col.name = "Batch"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "MPI",                col.name = "Model"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "0",                col.name = "nSex"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "Female",                col.name = "Sex"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "6.2",                col.name = "rawGA"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "Early",                col.name = "binGA"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "Placenta",                col.name = "Tissue"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta5 <- AddMetaData        (object = placenta5, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 244 (P5)
+placenta5 [["percent.mt"]]   <- PercentageFeatureSet (placenta5, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta5), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta5, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta5, slot   = 'counts')              );
+placenta5 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 244 (P5) 
+VlnPlot(placenta5, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 244 (P5)
+filtered_placenta5 <- subset(placenta5, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta5_SCE <- as.SingleCellExperiment(filtered_placenta5)
+#Performing scDblFinder
+placenta5_SCE <- scDblFinder(placenta5_SCE, dbr = 0.007, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta5$scDblFinder.score <- placenta5_SCE$scDblFinder.score
+filtered_placenta5$scDblFinder.class <- placenta5_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta5 <- subset (filtered_placenta5, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 244 (P5)
+filtered_placenta5 <- NormalizeData(filtered_placenta5)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 244 (P5)
+filtered_placenta5 <- CellCycleScoring   (filtered_placenta5, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 244 (P5)
+filtered_placenta5 <- FindVariableFeatures(filtered_placenta5, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 244 (P5)
+all.genes <- rownames(filtered_placenta5)
+filtered_placenta5 <- ScaleData(filtered_placenta5, features = all.genes)
+
+#Run PCA sample 244 (P5)
+filtered_placenta5 <- RunPCA(filtered_placenta5)
+
+#Elbowplot sample 244 (P5)
+ElbowPlot(filtered_placenta5, ndims=50)
+
+#Run UMAP sample 244 (P5)
+filtered_placenta5 <- RunUMAP(filtered_placenta5, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 244 (P5) after filtering 
+Idents (filtered_placenta5) <- filtered_placenta5@meta.data$ID
+VlnPlot(filtered_placenta5, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 244 (P5) after Doublet Removal
+save(filtered_placenta5, file = "~/Objects/Samples_Filtered/filtered_placenta5.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 295 (P6) and convert to Seurat object
+placenta6 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P6")
+placenta6 <- CreateSeuratObject (counts = placenta6, min.features = 100, project = "placenta6", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 295 (P6)
+placenta6 <- AddMetaData        (object = placenta6, metadata = "B_P295",             col.name = "ID"     )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "B_P295",            col.name = "rawID"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "in vivo",            col.name = "Type"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "2",                col.name = "Batch"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "MPI",                col.name = "Model"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "1",                col.name = "nSex"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "Male",                col.name = "Sex"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "6.5",                col.name = "rawGA"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "Early",                col.name = "binGA"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "Placenta",                col.name = "Tissue"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta6 <- AddMetaData        (object = placenta6, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 295 (P6)
+placenta6 [["percent.mt"]]   <- PercentageFeatureSet (placenta6, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta6), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta6, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta6, slot   = 'counts')              );
+placenta6 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 295 (P6) 
+VlnPlot(placenta6, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 295 (P6)
+filtered_placenta6 <- subset(placenta6, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta6_SCE <- as.SingleCellExperiment(filtered_placenta6)
+#Performing scDblFinder
+placenta6_SCE <- scDblFinder(placenta6_SCE, dbr = 0.012, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta6$scDblFinder.score <- placenta6_SCE$scDblFinder.score
+filtered_placenta6$scDblFinder.class <- placenta6_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta6 <- subset (filtered_placenta6, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 295 (P6)
+filtered_placenta6 <- NormalizeData(filtered_placenta6)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 295 (P6)
+filtered_placenta6 <- CellCycleScoring   (filtered_placenta6, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 295 (P6)
+filtered_placenta6 <- FindVariableFeatures(filtered_placenta6, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 295 (P6)
+all.genes <- rownames(filtered_placenta6)
+filtered_placenta6 <- ScaleData(filtered_placenta6, features = all.genes)
+
+#Run PCA sample 295 (P6)
+filtered_placenta6 <- RunPCA(filtered_placenta6)
+
+#Elbowplot sample 295 (P6)
+ElbowPlot(filtered_placenta6, ndims=50)
+
+#Run UMAP sample 295 (P6)
+filtered_placenta6 <- RunUMAP(filtered_placenta6, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 295 (P6) after filtering and Doublet Removal
+Idents (filtered_placenta6) <- filtered_placenta6@meta.data$ID
+VlnPlot(filtered_placenta6, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 295 (P6) after Doublet Removal
+save(filtered_placenta6, file = "~/Objects/Samples_Filtered/filtered_placenta6.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 899 (P7) and convert to Seurat object
+placenta7 <- Read10X(data.dir = "~/RawOuts/Placental Villi/Beristain_P7")
+placenta7 <- CreateSeuratObject (counts = placenta7, min.features = 100, project = "placenta7", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 899 (P7)
+placenta7 <- AddMetaData        (object = placenta7, metadata = "B_P899",             col.name = "ID"     )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "B_P899",            col.name = "rawID"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "in vivo",            col.name = "Type"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "2",                col.name = "Batch"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "MPI",                col.name = "Model"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "0",                col.name = "nSex"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "Female",                col.name = "Sex"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "11.4",                col.name = "rawGA"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "Late",                col.name = "binGA"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "Placenta",                col.name = "Tissue"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta7 <- AddMetaData        (object = placenta7, metadata = "One",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 899 (P7)
+placenta7 [["percent.mt"]]   <- PercentageFeatureSet (placenta7, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta7), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta7, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta7, slot   = 'counts')              );
+placenta7 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 899 (P7) 
+VlnPlot(placenta7, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 899 (P7)
+filtered_placenta7 <- subset(placenta7, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta7_SCE <- as.SingleCellExperiment(filtered_placenta7)
+#Performing scDblFinder
+placenta7_SCE <- scDblFinder(placenta7_SCE, dbr = 0.023, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta7$scDblFinder.score <- placenta7_SCE$scDblFinder.score
+filtered_placenta7$scDblFinder.class <- placenta7_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta7 <- subset (filtered_placenta7, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 899 (P7)
+filtered_placenta7 <- NormalizeData(filtered_placenta7)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 899 (P7)
+filtered_placenta7 <- CellCycleScoring   (filtered_placenta7, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 899 (P7)
+filtered_placenta7 <- FindVariableFeatures(filtered_placenta7, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 899 (P7)
+all.genes <- rownames(filtered_placenta7)
+filtered_placenta7 <- ScaleData(filtered_placenta7, features = all.genes)
+
+#Run PCA sample 899 (P7)
+filtered_placenta7 <- RunPCA(filtered_placenta7)
+
+#Elbowplot sample 899 (P7)
+ElbowPlot(filtered_placenta7, ndims=50)
+
+#Run UMAP sample 899 (P7)
+filtered_placenta7 <- RunUMAP(filtered_placenta7, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 899 (P7) after filtering 
+Idents (filtered_placenta7) <- filtered_placenta7@meta.data$ID
+VlnPlot(filtered_placenta7, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 899 (P7) after Doublet Removal
+save(filtered_placenta7, file = "~/Objects/Samples_Filtered/filtered_placenta7.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for D9 Placenta and convert to Seurat object
+placenta8 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D9")
+placenta8 <- CreateSeuratObject (counts = placenta8, min.features = 100, project = "placenta8", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D9 Placenta
+placenta8 <- AddMetaData        (object = placenta8, metadata = "D9_P",             col.name = "ID"     )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "D9_P",            col.name = "rawID"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "in vivo",            col.name = "Type"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "3",                col.name = "Batch"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "MPI",                col.name = "Model"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "1",                col.name = "nSex"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "Male",                col.name = "Sex"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "12.0",                col.name = "rawGA"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "Late",                col.name = "binGA"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "Placenta",                col.name = "Tissue"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta8 <- AddMetaData        (object = placenta8, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D9 Placenta
+placenta8 [["percent.mt"]]   <- PercentageFeatureSet (placenta8, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta8), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta8, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta8, slot   = 'counts')              );
+placenta8 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D9 Placenta
+VlnPlot(placenta8, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D9 Placenta
+filtered_placenta8 <- subset(placenta8, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta8_SCE <- as.SingleCellExperiment(filtered_placenta8)
+#Performing scDblFinder
+placenta8_SCE <- scDblFinder(placenta8_SCE, dbr = 0.039, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta8$scDblFinder.score <- placenta8_SCE$scDblFinder.score
+filtered_placenta8$scDblFinder.class <- placenta8_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta8 <- subset (filtered_placenta8, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D9 Placenta
+filtered_placenta8 <- NormalizeData(filtered_placenta8)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D9 Placenta
+filtered_placenta8 <- CellCycleScoring   (filtered_placenta8, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D9 Placenta
+filtered_placenta8 <- FindVariableFeatures(filtered_placenta8, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D9 Placenta
+all.genes <- rownames(filtered_placenta8)
+filtered_placenta8 <- ScaleData(filtered_placenta8, features = all.genes)
+
+#Run PCA sample D9 Placenta
+filtered_placenta8 <- RunPCA(filtered_placenta8)
+
+#Elbowplot sample D9 Placenta
+ElbowPlot(filtered_placenta8, ndims=50)
+
+#Run UMAP sample D9 Placenta
+filtered_placenta8 <- RunUMAP(filtered_placenta8, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D9 Placenta after filtering 
+Idents (filtered_placenta8) <- filtered_placenta8@meta.data$ID
+VlnPlot(filtered_placenta8, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D9 Placenta after Doublet Removal
+save(filtered_placenta8, file = "~/Objects/Samples_Filtered/filtered_placenta8.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D10 Placenta and convert to Seurat object
+placenta9 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D10")
+placenta9 <- CreateSeuratObject (counts = placenta9, min.features = 100, project = "placenta9", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D10 Placenta
+placenta9 <- AddMetaData        (object = placenta9, metadata = "D10_P",             col.name = "ID"     )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "D10_P",            col.name = "rawID"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "in vivo",            col.name = "Type"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "3",                col.name = "Batch"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "MPI",                col.name = "Model"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "1",                col.name = "nSex"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "Male",                col.name = "Sex"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "9.6",                col.name = "rawGA"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "Mid",                col.name = "binGA"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "Placenta",                col.name = "Tissue"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta9 <- AddMetaData        (object = placenta9, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D10 Placenta
+placenta9 [["percent.mt"]]   <- PercentageFeatureSet (placenta9, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta9), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta9, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta9, slot   = 'counts')              );
+placenta9 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D10 Placenta
+VlnPlot(placenta9, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D10 Placenta
+filtered_placenta9 <- subset(placenta9, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta9_SCE <- as.SingleCellExperiment(filtered_placenta9)
+#Performing scDblFinder
+placenta9_SCE <- scDblFinder(placenta9_SCE, dbr = 0.075, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta9$scDblFinder.score <- placenta9_SCE$scDblFinder.score
+filtered_placenta9$scDblFinder.class <- placenta9_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta9 <- subset (filtered_placenta9, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D10 Placenta
+filtered_placenta9 <- NormalizeData(filtered_placenta9)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D10 Placenta
+filtered_placenta9 <- CellCycleScoring   (filtered_placenta9, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D10 Placenta
+filtered_placenta9 <- FindVariableFeatures(filtered_placenta9, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D10 Placenta
+all.genes <- rownames(filtered_placenta9)
+filtered_placenta9 <- ScaleData(filtered_placenta9, features = all.genes)
+
+#Run PCA sample D10 Placenta
+filtered_placenta9 <- RunPCA(filtered_placenta9)
+
+#Elbowplot sample D10 Placenta
+ElbowPlot(filtered_placenta9, ndims=50)
+
+#Run UMAP sample D10 Placenta
+filtered_placenta9 <- RunUMAP(filtered_placenta9, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D10 Placenta after filtering 
+Idents (filtered_placenta9) <- filtered_placenta9@meta.data$ID
+VlnPlot(filtered_placenta9, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D10 Placenta after Doublet Removal
+save(filtered_placenta9, file = "~/Objects/Samples_Filtered/filtered_placenta9.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D10 Placenta (2) and convert to Seurat object
+placenta10 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D10.2")
+placenta10 <- CreateSeuratObject (counts = placenta10, min.features = 100, project = "placenta10", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D10 Placenta (2)
+placenta10 <- AddMetaData        (object = placenta10, metadata = "D10_P2",             col.name = "ID"     )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "D10_P2",            col.name = "rawID"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "in vivo",            col.name = "Type"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "3",                col.name = "Batch"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "MPI",                col.name = "Model"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "1",                col.name = "nSex"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "Male",                col.name = "Sex"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "9.6",                col.name = "rawGA"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "Mid",                col.name = "binGA"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "Placenta",                col.name = "Tissue"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta10 <- AddMetaData        (object = placenta10, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D10 Placenta (2)
+placenta10 [["percent.mt"]]   <- PercentageFeatureSet (placenta10, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta10), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta10, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta10, slot   = 'counts')              );
+placenta10 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D10 Placenta (2)
+VlnPlot(placenta10, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D10 Placenta (2)
+filtered_placenta10 <- subset(placenta10, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta10_SCE <- as.SingleCellExperiment(filtered_placenta10)
+#Performing scDblFinder
+placenta10_SCE <- scDblFinder(placenta10_SCE, dbr = 0.036, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta10$scDblFinder.score <- placenta10_SCE$scDblFinder.score
+filtered_placenta10$scDblFinder.class <- placenta10_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta10 <- subset (filtered_placenta10, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D10 Placenta (2)
+filtered_placenta10 <- NormalizeData(filtered_placenta10)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D10 Placenta (2)
+filtered_placenta10 <- CellCycleScoring   (filtered_placenta10, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D10 Placenta (2)
+filtered_placenta10 <- FindVariableFeatures(filtered_placenta10, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D10 Placenta (2)
+all.genes <- rownames(filtered_placenta10)
+filtered_placenta10 <- ScaleData(filtered_placenta10, features = all.genes)
+
+#Run PCA sample D10 Placenta (2)
+filtered_placenta10 <- RunPCA(filtered_placenta10)
+
+#Elbowplot sample D10 Placenta (2)
+ElbowPlot(filtered_placenta10, ndims=50)
+
+#Run UMAP sample D10 Placenta (2)
+filtered_placenta10 <- RunUMAP(filtered_placenta10, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D10 Placenta (2) after filtering 
+Idents (filtered_placenta10) <- filtered_placenta10@meta.data$ID
+VlnPlot(filtered_placenta10, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D10 Placenta (2) after Doublet Removal
+save(filtered_placenta10, file = "~/Objects/Samples_Filtered/filtered_placenta10.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D10 Placenta (3) and convert to Seurat object
+placenta11 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D10.3")
+placenta11 <- CreateSeuratObject (counts = placenta11, min.features = 100, project = "placenta11", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D10 Placenta (3)
+placenta11 <- AddMetaData        (object = placenta11, metadata = "D10_P3",             col.name = "ID"     )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "D10_P3",            col.name = "rawID"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "in vivo",            col.name = "Type"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "3",                col.name = "Batch"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "MPI",                col.name = "Model"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "1",                col.name = "nSex"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "Male",                col.name = "Sex"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "9.6",                col.name = "rawGA"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "Mid",                col.name = "binGA"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "Placenta",                col.name = "Tissue"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta11 <- AddMetaData        (object = placenta11, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D10 Placenta (3)
+placenta11 [["percent.mt"]]   <- PercentageFeatureSet (placenta11, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta11), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta11, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta11, slot   = 'counts')              );
+placenta11 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D10 Placenta (3)
+VlnPlot(placenta11, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D10 Placenta (3)
+filtered_placenta11 <- subset(placenta11, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta11_SCE <- as.SingleCellExperiment(filtered_placenta11)
+#Performing scDblFinder
+placenta11_SCE <- scDblFinder(placenta11_SCE, dbr = 0.039, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta11$scDblFinder.score <- placenta11_SCE$scDblFinder.score
+filtered_placenta11$scDblFinder.class <- placenta11_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta11 <- subset (filtered_placenta11, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D10 Placenta (3)
+filtered_placenta11 <- NormalizeData(filtered_placenta11)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D10 Placenta (3)
+filtered_placenta11 <- CellCycleScoring   (filtered_placenta11, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D10 Placenta (3)
+filtered_placenta11 <- FindVariableFeatures(filtered_placenta11, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D10 Placenta (3)
+all.genes <- rownames(filtered_placenta11)
+filtered_placenta11 <- ScaleData(filtered_placenta11, features = all.genes)
+
+#Run PCA sample D10 Placenta (3)
+filtered_placenta11 <- RunPCA(filtered_placenta11)
+
+#Elbowplot sample D10 Placenta (3)
+ElbowPlot(filtered_placenta11, ndims=50)
+
+#Run UMAP sample D10 Placenta (3)
+filtered_placenta11 <- RunUMAP(filtered_placenta11, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D10 Placenta (3) after filtering 
+Idents (filtered_placenta11) <- filtered_placenta11@meta.data$ID
+VlnPlot(filtered_placenta11, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D10 Placenta (3) after Doublet Removal
+save(filtered_placenta11, file = "~/Objects/Samples_Filtered/filtered_placenta11.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D11 Placenta and convert to Seurat object
+placenta12 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D11")
+placenta12 <- CreateSeuratObject (counts = placenta12, min.features = 100, project = "placenta12", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D11 Placenta
+placenta12 <- AddMetaData        (object = placenta12, metadata = "D11_P",             col.name = "ID"     )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "D11_P",            col.name = "rawID"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "in vivo",            col.name = "Type"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "3",                col.name = "Batch"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "MPI",                col.name = "Model"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "0",                col.name = "nSex"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "Female",                col.name = "Sex"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "6.7",                col.name = "rawGA"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "Early",                col.name = "binGA"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "Placenta",                col.name = "Tissue"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta12 <- AddMetaData        (object = placenta12, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D11 Placenta
+placenta12 [["percent.mt"]]   <- PercentageFeatureSet (placenta12, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta12), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta12, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta12, slot   = 'counts')              );
+placenta12 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D11 Placenta
+VlnPlot(placenta12, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D11 Placenta
+filtered_placenta12 <- subset(placenta12, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta12_SCE <- as.SingleCellExperiment(filtered_placenta12)
+#Performing scDblFinder
+placenta12_SCE <- scDblFinder(placenta12_SCE, dbr = 0.039, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta12$scDblFinder.score <- placenta12_SCE$scDblFinder.score
+filtered_placenta12$scDblFinder.class <- placenta12_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta12 <- subset (filtered_placenta12, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D11 Placenta
+filtered_placenta12 <- NormalizeData(filtered_placenta12)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D11 Placenta
+filtered_placenta12 <- CellCycleScoring   (filtered_placenta12, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D11 Placenta
+filtered_placenta12 <- FindVariableFeatures(filtered_placenta12, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D11 Placenta
+all.genes <- rownames(filtered_placenta12)
+filtered_placenta12 <- ScaleData(filtered_placenta12, features = all.genes)
+
+#Run PCA sample D11 Placenta
+filtered_placenta12 <- RunPCA(filtered_placenta12)
+
+#Elbowplot sample D11 Placenta
+ElbowPlot(filtered_placenta12, ndims=50)
+
+#Run UMAP sample D11 Placenta
+filtered_placenta12 <- RunUMAP(filtered_placenta12, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D11 Placenta after filtering 
+Idents (filtered_placenta12) <- filtered_placenta12@meta.data$ID
+VlnPlot(filtered_placenta12, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D11 Placenta after Doublet Removal
+save(filtered_placenta12, file = "~/Objects/Samples_Filtered/filtered_placenta12.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D11 Placenta (2) and convert to Seurat object
+placenta13 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D11.2")
+placenta13 <- CreateSeuratObject (counts = placenta13, min.features = 100, project = "placenta13", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D11 Placenta (2)
+placenta13 <- AddMetaData        (object = placenta13, metadata = "D11_P2",             col.name = "ID"     )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "D11_P2",            col.name = "rawID"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "in vivo",            col.name = "Type"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "3",                col.name = "Batch"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "MPI",                col.name = "Model"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "0",                col.name = "nSex"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "Female",                col.name = "Sex"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "6.7",                col.name = "rawGA"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "Early",                col.name = "binGA"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "Placenta",                col.name = "Tissue"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta13 <- AddMetaData        (object = placenta13, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D11 Placenta (2)
+placenta13 [["percent.mt"]]   <- PercentageFeatureSet (placenta13, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta13), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta13, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta13, slot   = 'counts')              );
+placenta13 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D11 Placenta (2)
+VlnPlot(placenta13, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D11 Placenta (2)
+filtered_placenta13 <- subset(placenta13, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta13_SCE <- as.SingleCellExperiment(filtered_placenta13)
+#Performing scDblFinder
+placenta13_SCE <- scDblFinder(placenta13_SCE, dbr = 0.006, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta13$scDblFinder.score <- placenta13_SCE$scDblFinder.score
+filtered_placenta13$scDblFinder.class <- placenta13_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta13 <- subset (filtered_placenta13, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D11 Placenta (2)
+filtered_placenta13 <- NormalizeData(filtered_placenta13)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D11 Placenta (2)
+filtered_placenta13 <- CellCycleScoring   (filtered_placenta13, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D11 Placenta (2)
+filtered_placenta13 <- FindVariableFeatures(filtered_placenta13, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D11 Placenta (2)
+all.genes <- rownames(filtered_placenta13)
+filtered_placenta13 <- ScaleData(filtered_placenta13, features = all.genes)
+
+#Run PCA sample D11 Placenta (2)
+filtered_placenta13 <- RunPCA(filtered_placenta13)
+
+#Elbowplot sample D11 Placenta (2)
+ElbowPlot(filtered_placenta13, ndims=50)
+
+#Run UMAP sample D11 Placenta (2)
+filtered_placenta13 <- RunUMAP(filtered_placenta13, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D11 Placenta (2) after filtering 
+Idents (filtered_placenta13) <- filtered_placenta13@meta.data$ID
+VlnPlot(filtered_placenta13, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D11 Placenta (2) after Doublet Removal
+save(filtered_placenta13, file = "~/Objects/Samples_Filtered/filtered_placenta13.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D12 Placenta and convert to Seurat object
+placenta14 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D12")
+placenta14 <- CreateSeuratObject (counts = placenta14, min.features = 100, project = "placenta14", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D12 Placenta
+placenta14 <- AddMetaData        (object = placenta14, metadata = "D12_P",             col.name = "ID"     )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "D12_P",            col.name = "rawID"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "in vivo",            col.name = "Type"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "3",                col.name = "Batch"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "MPI",                col.name = "Model"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "0",                col.name = "nSex"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "Female",                col.name = "Sex"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "10.0",                col.name = "rawGA"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "Mid",                col.name = "binGA"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "Placenta",                col.name = "Tissue"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta14 <- AddMetaData        (object = placenta14, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D12 Placenta
+placenta14 [["percent.mt"]]   <- PercentageFeatureSet (placenta14, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta14), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta14, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta14, slot   = 'counts')              );
+placenta14 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D12 Placenta
+VlnPlot(placenta14, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D12 Placenta
+filtered_placenta14 <- subset(placenta14, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta14_SCE <- as.SingleCellExperiment(filtered_placenta14)
+#Performing scDblFinder
+placenta14_SCE <- scDblFinder(placenta14_SCE, dbr = 0.035, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta14$scDblFinder.score <- placenta14_SCE$scDblFinder.score
+filtered_placenta14$scDblFinder.class <- placenta14_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta14 <- subset (filtered_placenta14, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D12 Placenta
+filtered_placenta14 <- NormalizeData(filtered_placenta14)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D12 Placenta
+filtered_placenta14 <- CellCycleScoring   (filtered_placenta14, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D12 Placenta
+filtered_placenta14 <- FindVariableFeatures(filtered_placenta14, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D12 Placenta
+all.genes <- rownames(filtered_placenta14)
+filtered_placenta14 <- ScaleData(filtered_placenta14, features = all.genes)
+
+#Run PCA sample D12 Placenta
+filtered_placenta14 <- RunPCA(filtered_placenta14)
+
+#Elbowplot sample D12 Placenta
+ElbowPlot(filtered_placenta14, ndims=50)
+
+#Run UMAP sample D12 Placenta
+filtered_placenta14 <- RunUMAP(filtered_placenta14, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D12 Placenta after filtering 
+Idents (filtered_placenta14) <- filtered_placenta14@meta.data$ID
+VlnPlot(filtered_placenta14, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D12 Placenta after Doublet Removal
+save(filtered_placenta14, file = "~/Objects/Samples_Filtered/filtered_placenta14.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D12 Placenta (2) and convert to Seurat object
+placenta15 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D12.2")
+placenta15 <- CreateSeuratObject (counts = placenta15, min.features = 100, project = "placenta15", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D12 Placenta (2)
+placenta15 <- AddMetaData        (object = placenta15, metadata = "D12_P2",             col.name = "ID"     )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "D12_P2",            col.name = "rawID"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "in vivo",            col.name = "Type"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "3",                col.name = "Batch"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "MPI",                col.name = "Model"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "0",                col.name = "nSex"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "Female",                col.name = "Sex"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "10.0",                col.name = "rawGA"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "Mid",                col.name = "binGA"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "Placenta",                col.name = "Tissue"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta15 <- AddMetaData        (object = placenta15, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D12 Placenta (2)
+placenta15 [["percent.mt"]]   <- PercentageFeatureSet (placenta15, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta15), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta15, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta15, slot   = 'counts')              );
+placenta15 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D12 Placenta (2)
+VlnPlot(placenta15, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D12 Placenta (2)
+filtered_placenta15 <- subset(placenta15, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta15_SCE <- as.SingleCellExperiment(filtered_placenta15)
+#Performing scDblFinder
+placenta15_SCE <- scDblFinder(placenta15_SCE, dbr = 0.025, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta15$scDblFinder.score <- placenta15_SCE$scDblFinder.score
+filtered_placenta15$scDblFinder.class <- placenta15_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta15 <- subset (filtered_placenta15, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D12 Placenta (2)
+filtered_placenta15 <- NormalizeData(filtered_placenta15)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D12 Placenta (2)
+filtered_placenta15 <- CellCycleScoring   (filtered_placenta15, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D12 Placenta (2)
+filtered_placenta15 <- FindVariableFeatures(filtered_placenta15, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D12 Placenta (2)
+all.genes <- rownames(filtered_placenta15)
+filtered_placenta15 <- ScaleData(filtered_placenta15, features = all.genes)
+
+#Run PCA sample D12 Placenta (2)
+filtered_placenta15 <- RunPCA(filtered_placenta15)
+
+#Elbowplot sample D12 Placenta (2)
+ElbowPlot(filtered_placenta15, ndims=50)
+
+#Run UMAP sample D12 Placenta (2)
+filtered_placenta15 <- RunUMAP(filtered_placenta15, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D12 Placenta (2) after filtering 
+Idents (filtered_placenta15) <- filtered_placenta15@meta.data$ID
+VlnPlot(filtered_placenta15, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D12 Placenta (2) after Doublet Removal
+save(filtered_placenta15, file = "~/Objects/Samples_Filtered/filtered_placenta15.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D12 Placenta (3) and convert to Seurat object
+placenta16 <- Read10X(data.dir = "~/RawOuts/Placental Villi/VT_D12.3")
+placenta16 <- CreateSeuratObject (counts = placenta16, min.features = 100, project = "placenta16", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D12 Placenta (3)
+placenta16 <- AddMetaData        (object = placenta16, metadata = "D12_P3",             col.name = "ID"     )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "D12_P3",            col.name = "rawID"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "in vivo",            col.name = "Type"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "3",                col.name = "Batch"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "MPI",                col.name = "Model"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "0",                col.name = "nSex"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "Female",                col.name = "Sex"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "10.0",                col.name = "rawGA"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "Mid",                col.name = "binGA"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "Placenta",                col.name = "Tissue"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "in vivo",                col.name = "Oxygen"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "in vivo",                col.name = "OxygenCondition"  )
+placenta16 <- AddMetaData        (object = placenta16, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D12 Placenta (3)
+placenta16 [["percent.mt"]]   <- PercentageFeatureSet (placenta16, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (placenta16), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (placenta16, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (placenta16, slot   = 'counts')              );
+placenta16 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D12 Placenta (3)
+VlnPlot(placenta16, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D12 Placenta (3)
+filtered_placenta16 <- subset(placenta16, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+placenta16_SCE <- as.SingleCellExperiment(filtered_placenta16)
+#Performing scDblFinder
+placenta16_SCE <- scDblFinder(placenta16_SCE, dbr = 0.03, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_placenta16$scDblFinder.score <- placenta16_SCE$scDblFinder.score
+filtered_placenta16$scDblFinder.class <- placenta16_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_placenta16 <- subset (filtered_placenta16, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D12 Placenta (3)
+filtered_placenta16 <- NormalizeData(filtered_placenta16)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D12 Placenta (3)
+filtered_placenta16 <- CellCycleScoring   (filtered_placenta16, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D12 Placenta (3)
+filtered_placenta16 <- FindVariableFeatures(filtered_placenta16, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D12 Placenta (3)
+all.genes <- rownames(filtered_placenta16)
+filtered_placenta16 <- ScaleData(filtered_placenta16, features = all.genes)
+
+#Run PCA sample D12 Placenta (3)
+filtered_placenta16 <- RunPCA(filtered_placenta16)
+
+#Elbowplot sample D12 Placenta (3)
+ElbowPlot(filtered_placenta16, ndims=50)
+
+#Run UMAP sample D12 Placenta (3)
+filtered_placenta16 <- RunUMAP(filtered_placenta16, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D12 Placenta (3) after filtering 
+Idents (filtered_placenta16) <- filtered_placenta16@meta.data$ID
+VlnPlot(filtered_placenta16, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D12 Placenta (3) after Doublet Removal
+save(filtered_placenta16, file = "~/Objects/Samples_Filtered/filtered_placenta16.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D6 Decidua and convert to Seurat object
+decidua1 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D6")
+decidua1 <- CreateSeuratObject (counts = decidua1, min.features = 100, project = "decidua1", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D6 Decidua
+decidua1 <- AddMetaData        (object = decidua1, metadata = "D6_D",             col.name = "ID"     )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "D6_D",            col.name = "rawID"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "in vivo",            col.name = "Type"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "3",                col.name = "Batch"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "MPI",                col.name = "Model"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "0",                col.name = "nSex"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "Female",                col.name = "Sex"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "12.0",                col.name = "rawGA"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "Late",                col.name = "binGA"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "Decidua",                col.name = "Tissue"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua1 <- AddMetaData        (object = decidua1, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D6 Decidua
+decidua1 [["percent.mt"]]   <- PercentageFeatureSet (decidua1, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua1), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua1, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua1, slot   = 'counts')              );
+decidua1 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D6 Decidua
+VlnPlot(decidua1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D6 Decidua
+filtered_decidua1 <- subset(decidua1, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua1_SCE <- as.SingleCellExperiment(filtered_decidua1)
+#Performing scDblFinder
+decidua1_SCE <- scDblFinder(decidua1_SCE, dbr = 0.055, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua1$scDblFinder.score <- decidua1_SCE$scDblFinder.score
+filtered_decidua1$scDblFinder.class <- decidua1_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua1 <- subset (filtered_decidua1, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D6 Decidua
+filtered_decidua1 <- NormalizeData(filtered_decidua1)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D6 Decidua
+filtered_decidua1 <- CellCycleScoring   (filtered_decidua1, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D6 Decidua
+filtered_decidua1 <- FindVariableFeatures(filtered_decidua1, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D6 Decidua
+all.genes <- rownames(filtered_decidua1)
+filtered_decidua1 <- ScaleData(filtered_decidua1, features = all.genes)
+
+#Run PCA sample D6 Decidua
+filtered_decidua1 <- RunPCA(filtered_decidua1)
+
+#Elbowplot sample D6 Decidua
+ElbowPlot(filtered_decidua1, ndims=50)
+
+#Run UMAP sample D6 Decidua
+filtered_decidua1 <- RunUMAP(filtered_decidua1, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D6 Decidua after filtering 
+Idents (filtered_decidua1) <- filtered_decidua1@meta.data$ID
+VlnPlot(filtered_decidua1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D6 Decidua after Doublet Removal
+save(filtered_decidua1, file = "~/Objects/Samples_Filtered/filtered_decidua1.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D6 Decidua (2) and convert to Seurat object
+decidua2 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D6.2")
+decidua2 <- CreateSeuratObject (counts = decidua2, min.features = 100, project = "decidua2", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D6 Decidua (2)
+decidua2 <- AddMetaData        (object = decidua2, metadata = "D6_D2",             col.name = "ID"     )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "D6_D2",            col.name = "rawID"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "in vivo",            col.name = "Type"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "3",                col.name = "Batch"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "MPI",                col.name = "Model"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "0",                col.name = "nSex"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "Female",                col.name = "Sex"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "12.0",                col.name = "rawGA"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "Late",                col.name = "binGA"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "Decidua",                col.name = "Tissue"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua2 <- AddMetaData        (object = decidua2, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D6 Decidua (2)
+decidua2 [["percent.mt"]]   <- PercentageFeatureSet (decidua2, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua2), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua2, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua2, slot   = 'counts')              );
+decidua2 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D6 Decidua (2)
+VlnPlot(decidua2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D6 Decidua (2)
+filtered_decidua2 <- subset(decidua2, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua2_SCE <- as.SingleCellExperiment(filtered_decidua2)
+#Performing scDblFinder
+decidua2_SCE <- scDblFinder(decidua2_SCE, dbr = 0.004, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua2$scDblFinder.score <- decidua2_SCE$scDblFinder.score
+filtered_decidua2$scDblFinder.class <- decidua2_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua2 <- subset (filtered_decidua2, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D6 Decidua (2)
+filtered_decidua2 <- NormalizeData(filtered_decidua2)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D6 Decidua (2)
+filtered_decidua2 <- CellCycleScoring   (filtered_decidua2, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D6 Decidua (2)
+filtered_decidua2 <- FindVariableFeatures(filtered_decidua2, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D6 Decidua (2)
+all.genes <- rownames(filtered_decidua2)
+filtered_decidua2 <- ScaleData(filtered_decidua2, features = all.genes)
+
+#Run PCA sample D6 Decidua (2)
+filtered_decidua2 <- RunPCA(filtered_decidua2)
+
+#Elbowplot sample D6 Decidua (2)
+ElbowPlot(filtered_decidua2, ndims=50)
+
+#Run UMAP sample D6 Decidua (2)
+filtered_decidua2 <- RunUMAP(filtered_decidua2, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D6 Decidua (2) after filtering 
+Idents (filtered_decidua2) <- filtered_decidua2@meta.data$ID
+VlnPlot(filtered_decidua2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D6 Decidua (2) after Doublet Removal
+save(filtered_decidua2, file = "~/Objects/Samples_Filtered/filtered_decidua2.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D6 Decidua (3) and convert to Seurat object
+decidua3 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D6.3")
+decidua3 <- CreateSeuratObject (counts = decidua3, min.features = 100, project = "decidua3", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D6 Decidua (3)
+decidua3 <- AddMetaData        (object = decidua3, metadata = "D6_D3",             col.name = "ID"     )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "D6_D3",            col.name = "rawID"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "in vivo",            col.name = "Type"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "3",                col.name = "Batch"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "MPI",                col.name = "Model"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "0",                col.name = "nSex"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "Female",                col.name = "Sex"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "12.0",                col.name = "rawGA"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "Late",                col.name = "binGA"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "Decidua",                col.name = "Tissue"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua3 <- AddMetaData        (object = decidua3, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D6 Decidua (3)
+decidua3 [["percent.mt"]]   <- PercentageFeatureSet (decidua3, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua3), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua3, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua3, slot   = 'counts')              );
+decidua3 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D6 Decidua (3)
+VlnPlot(decidua3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D6 Decidua (3)
+filtered_decidua3 <- subset(decidua3, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua3_SCE <- as.SingleCellExperiment(filtered_decidua3)
+#Performing scDblFinder
+decidua3_SCE <- scDblFinder(decidua3_SCE, dbr = 0.015, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua3$scDblFinder.score <- decidua3_SCE$scDblFinder.score
+filtered_decidua3$scDblFinder.class <- decidua3_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua3 <- subset (filtered_decidua3, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D6 Decidua (3)
+filtered_decidua3 <- NormalizeData(filtered_decidua3)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D6 Decidua (3)
+filtered_decidua3 <- CellCycleScoring   (filtered_decidua3, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D6 Decidua (3)
+filtered_decidua3 <- FindVariableFeatures(filtered_decidua3, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D6 Decidua (3)
+all.genes <- rownames(filtered_decidua3)
+filtered_decidua3 <- ScaleData(filtered_decidua3, features = all.genes)
+
+#Run PCA sample D6 Decidua (3)
+filtered_decidua3 <- RunPCA(filtered_decidua3)
+
+#Elbowplot sample D6 Decidua (3)
+ElbowPlot(filtered_decidua3, ndims=50)
+
+#Run UMAP sample D6 Decidua (3)
+filtered_decidua3 <- RunUMAP(filtered_decidua3, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D6 Decidua (3) after filtering 
+Idents (filtered_decidua3) <- filtered_decidua3@meta.data$ID
+VlnPlot(filtered_decidua3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D6 Decidua (3) after Doublet Removal
+save(filtered_decidua3, file = "~/Objects/Samples_Filtered/filtered_decidua3.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D9 Decidua and convert to Seurat object
+decidua4 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D9")
+decidua4 <- CreateSeuratObject (counts = decidua4, min.features = 100, project = "decidua4", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D9 Decidua
+decidua4 <- AddMetaData        (object = decidua4, metadata = "D9_D",             col.name = "ID"     )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "D9_D",            col.name = "rawID"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "in vivo",            col.name = "Type"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "3",                col.name = "Batch"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "MPI",                col.name = "Model"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "1",                col.name = "nSex"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "Male",                col.name = "Sex"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "12.0",                col.name = "rawGA"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "Late",                col.name = "binGA"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "Decidua",                col.name = "Tissue"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua4 <- AddMetaData        (object = decidua4, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D9 Decidua
+decidua4 [["percent.mt"]]   <- PercentageFeatureSet (decidua4, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua4), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua4, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua4, slot   = 'counts')              );
+decidua4 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D9 Decidua
+VlnPlot(decidua4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D9 Decidua
+filtered_decidua4 <- subset(decidua4, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua4_SCE <- as.SingleCellExperiment(filtered_decidua4)
+#Performing scDblFinder
+decidua4_SCE <- scDblFinder(decidua4_SCE, dbr = 0.025, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua4$scDblFinder.score <- decidua4_SCE$scDblFinder.score
+filtered_decidua4$scDblFinder.class <- decidua4_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua4 <- subset (filtered_decidua4, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D9 Decidua
+filtered_decidua4 <- NormalizeData(filtered_decidua4)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D9 Decidua
+filtered_decidua4 <- CellCycleScoring   (filtered_decidua4, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D9 Decidua
+filtered_decidua4 <- FindVariableFeatures(filtered_decidua4, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D9 Decidua
+all.genes <- rownames(filtered_decidua4)
+filtered_decidua4 <- ScaleData(filtered_decidua4, features = all.genes)
+
+#Run PCA sample D9 Decidua
+filtered_decidua4 <- RunPCA(filtered_decidua4)
+
+#Elbowplot sample D9 Decidua
+ElbowPlot(filtered_decidua4, ndims=50)
+
+#Run UMAP sample D9 Decidua
+filtered_decidua4 <- RunUMAP(filtered_decidua4, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D9 Decidua after filtering 
+Idents (filtered_decidua4) <- filtered_decidua4@meta.data$ID
+VlnPlot(filtered_decidua4, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D9 Decidua after Doublet Removal
+save(filtered_decidua4, file = "~/Objects/Samples_Filtered/filtered_decidua4.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D9 Decidua (2) and convert to Seurat object
+decidua5 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D9.2")
+decidua5 <- CreateSeuratObject (counts = decidua5, min.features = 100, project = "decidua5", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D9 Decidua (2)
+decidua5 <- AddMetaData        (object = decidua5, metadata = "D9_D2",             col.name = "ID"     )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "D9_D2",            col.name = "rawID"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "in vivo",            col.name = "Type"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "3",                col.name = "Batch"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "MPI",                col.name = "Model"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "1",                col.name = "nSex"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "Male",                col.name = "Sex"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "12.0",                col.name = "rawGA"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "Late",                col.name = "binGA"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "Decidua",                col.name = "Tissue"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua5 <- AddMetaData        (object = decidua5, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D9 Decidua (2)
+decidua5 [["percent.mt"]]   <- PercentageFeatureSet (decidua5, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua5), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua5, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua5, slot   = 'counts')              );
+decidua5 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D9 Decidua (2)
+VlnPlot(decidua5, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D9 Decidua (2)
+filtered_decidua5 <- subset(decidua5, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua5_SCE <- as.SingleCellExperiment(filtered_decidua5)
+#Performing scDblFinder
+decidua5_SCE <- scDblFinder(decidua5_SCE, dbr = 0.061, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua5$scDblFinder.score <- decidua5_SCE$scDblFinder.score
+filtered_decidua5$scDblFinder.class <- decidua5_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua5 <- subset (filtered_decidua5, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D9 Decidua (2)
+filtered_decidua5 <- NormalizeData(filtered_decidua5)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D9 Decidua (2)
+filtered_decidua5 <- CellCycleScoring   (filtered_decidua5, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D9 Decidua (2)
+filtered_decidua5 <- FindVariableFeatures(filtered_decidua5, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D9 Decidua (2)
+all.genes <- rownames(filtered_decidua5)
+filtered_decidua5 <- ScaleData(filtered_decidua5, features = all.genes)
+
+#Run PCA sample D9 Decidua (2)
+filtered_decidua5 <- RunPCA(filtered_decidua5)
+
+#Elbowplot sample D9 Decidua (2)
+ElbowPlot(filtered_decidua5, ndims=50)
+
+#Run UMAP sample D9 Decidua (2)
+filtered_decidua5 <- RunUMAP(filtered_decidua5, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D9 Decidua (2) after filtering 
+Idents (filtered_decidua5) <- filtered_decidua5@meta.data$ID
+VlnPlot(filtered_decidua5, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D9 Decidua (2) after Doublet Removal
+save(filtered_decidua5, file = "~/Objects/Samples_Filtered/filtered_decidua5.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D10 Decidua and convert to Seurat object
+decidua6 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D10")
+decidua6 <- CreateSeuratObject (counts = decidua6, min.features = 100, project = "decidua6", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D10 Decidua
+decidua6 <- AddMetaData        (object = decidua6, metadata = "D10_D",             col.name = "ID"     )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "D10_D",            col.name = "rawID"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "in vivo",            col.name = "Type"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "3",                col.name = "Batch"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "MPI",                col.name = "Model"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "1",                col.name = "nSex"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "Male",                col.name = "Sex"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "9.6",                col.name = "rawGA"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "Mid",                col.name = "binGA"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "Decidua",                col.name = "Tissue"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua6 <- AddMetaData        (object = decidua6, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D10 Decidua
+decidua6 [["percent.mt"]]   <- PercentageFeatureSet (decidua6, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua6), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua6, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua6, slot   = 'counts')              );
+decidua6 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D10 Decidua
+VlnPlot(decidua6, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D10 Decidua
+filtered_decidua6 <- subset(decidua6, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua6_SCE <- as.SingleCellExperiment(filtered_decidua6)
+#Performing scDblFinder
+decidua6_SCE <- scDblFinder(decidua6_SCE, dbr = 0.018, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua6$scDblFinder.score <- decidua6_SCE$scDblFinder.score
+filtered_decidua6$scDblFinder.class <- decidua6_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua6 <- subset (filtered_decidua6, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D10 Decidua
+filtered_decidua6 <- NormalizeData(filtered_decidua6)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D10 Decidua
+filtered_decidua6 <- CellCycleScoring   (filtered_decidua6, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D10 Decidua
+filtered_decidua6 <- FindVariableFeatures(filtered_decidua6, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D10 Decidua
+all.genes <- rownames(filtered_decidua6)
+filtered_decidua6 <- ScaleData(filtered_decidua6, features = all.genes)
+
+#Run PCA sample D10 Decidua
+filtered_decidua6 <- RunPCA(filtered_decidua6)
+
+#Elbowplot sample D10 Decidua
+ElbowPlot(filtered_decidua6, ndims=50)
+
+#Run UMAP sample D10 Decidua
+filtered_decidua6 <- RunUMAP(filtered_decidua6, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D10 Decidua after filtering 
+Idents (filtered_decidua6) <- filtered_decidua6@meta.data$ID
+VlnPlot(filtered_decidua6, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D10 Decidua after Doublet Removal
+save(filtered_decidua6, file = "~/Objects/Samples_Filtered/filtered_decidua6.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D10 Decidua (2) and convert to Seurat object
+decidua7 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D10.2")
+decidua7 <- CreateSeuratObject (counts = decidua7, min.features = 100, project = "decidua7", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D10 Decidua (2)
+decidua7 <- AddMetaData        (object = decidua7, metadata = "D10_2",             col.name = "ID"     )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "D10_2",            col.name = "rawID"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "in vivo",            col.name = "Type"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "3",                col.name = "Batch"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "MPI",                col.name = "Model"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "1",                col.name = "nSex"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "Male",                col.name = "Sex"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "9.6",                col.name = "rawGA"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "Mid",                col.name = "binGA"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "Decidua",                col.name = "Tissue"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua7 <- AddMetaData        (object = decidua7, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D10 Decidua (2)
+decidua7 [["percent.mt"]]   <- PercentageFeatureSet (decidua7, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua7), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua7, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua7, slot   = 'counts')              );
+decidua7 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D10 Decidua (2)
+VlnPlot(decidua7, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D10 Decidua (2)
+filtered_decidua7 <- subset(decidua7, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua7_SCE <- as.SingleCellExperiment(filtered_decidua7)
+#Performing scDblFinder
+decidua7_SCE <- scDblFinder(decidua7_SCE, dbr = 0.024, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua7$scDblFinder.score <- decidua7_SCE$scDblFinder.score
+filtered_decidua7$scDblFinder.class <- decidua7_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua7 <- subset (filtered_decidua7, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D10 Decidua (2)
+filtered_decidua7 <- NormalizeData(filtered_decidua7)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D10 Decidua (2)
+filtered_decidua7 <- CellCycleScoring   (filtered_decidua7, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D10 Decidua (2)
+filtered_decidua7 <- FindVariableFeatures(filtered_decidua7, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D10 Decidua (2)
+all.genes <- rownames(filtered_decidua7)
+filtered_decidua7 <- ScaleData(filtered_decidua7, features = all.genes)
+
+#Run PCA sample D10 Decidua (2)
+filtered_decidua7 <- RunPCA(filtered_decidua7)
+
+#Elbowplot sample D10 Decidua (2)
+ElbowPlot(filtered_decidua7, ndims=50)
+
+#Run UMAP sample D10 Decidua (2)
+filtered_decidua7 <- RunUMAP(filtered_decidua7, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D10 Decidua (2) after filtering 
+Idents (filtered_decidua7) <- filtered_decidua7@meta.data$ID
+VlnPlot(filtered_decidua7, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D10 Decidua (2) after Doublet Removal
+save(filtered_decidua7, file = "~/Objects/Samples_Filtered/filtered_decidua7.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D12 Decidua and convert to Seurat object
+decidua8 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D12")
+decidua8 <- CreateSeuratObject (counts = decidua8, min.features = 100, project = "decidua8", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D12 Decidua
+decidua8 <- AddMetaData        (object = decidua8, metadata = "D12_D",             col.name = "ID"     )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "D12_D",            col.name = "rawID"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "in vivo",            col.name = "Type"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "3",                col.name = "Batch"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "MPI",                col.name = "Model"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "0",                col.name = "nSex"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "Female",                col.name = "Sex"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "10.0",                col.name = "rawGA"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "Mid",                col.name = "binGA"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "Decidua",                col.name = "Tissue"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua8 <- AddMetaData        (object = decidua8, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D12 Decidua
+decidua8 [["percent.mt"]]   <- PercentageFeatureSet (decidua8, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua8), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua8, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua8, slot   = 'counts')              );
+decidua8 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D12 Decidua
+VlnPlot(decidua8, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D12 Decidua
+filtered_decidua8 <- subset(decidua8, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua8_SCE <- as.SingleCellExperiment(filtered_decidua8)
+#Performing scDblFinder
+decidua8_SCE <- scDblFinder(decidua8_SCE, dbr = 0.016, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua8$scDblFinder.score <- decidua8_SCE$scDblFinder.score
+filtered_decidua8$scDblFinder.class <- decidua8_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua8 <- subset (filtered_decidua8, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D12 Decidua
+filtered_decidua8 <- NormalizeData(filtered_decidua8)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D12 Decidua
+filtered_decidua8 <- CellCycleScoring   (filtered_decidua8, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D12 Decidua
+filtered_decidua8 <- FindVariableFeatures(filtered_decidua8, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D12 Decidua
+all.genes <- rownames(filtered_decidua8)
+filtered_decidua8 <- ScaleData(filtered_decidua8, features = all.genes)
+
+#Run PCA sample D12 Decidua
+filtered_decidua8 <- RunPCA(filtered_decidua8)
+
+#Elbowplot sample D12 Decidua
+ElbowPlot(filtered_decidua8, ndims=50)
+
+#Run UMAP sample D12 Decidua
+filtered_decidua8 <- RunUMAP(filtered_decidua8, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D12 Decidua after filtering 
+Idents (filtered_decidua8) <- filtered_decidua8@meta.data$ID
+VlnPlot(filtered_decidua8, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D12 Decidua after Doublet Removal
+save(filtered_decidua8, file = "~/Objects/Samples_Filtered/filtered_decidua8.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample D12 Decidua (2) and convert to Seurat object
+decidua9 <- Read10X(data.dir = "~/RawOuts/Decidua/VT_D12.2")
+decidua9 <- CreateSeuratObject (counts = decidua9, min.features = 100, project = "decidua9", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample D12 Decidua (2)
+decidua9 <- AddMetaData        (object = decidua9, metadata = "D12_D2",             col.name = "ID"     )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "D12_D2",            col.name = "rawID"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "in vivo",            col.name = "Type"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "3",                col.name = "Batch"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "MPI",                col.name = "Model"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "0",                col.name = "nSex"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "Female",                col.name = "Sex"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "10.0",                col.name = "rawGA"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "Mid",                col.name = "binGA"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "Decidua",                col.name = "Tissue"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "in vivo",                col.name = "Oxygen"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "in vivo",                col.name = "OxygenCondition"  )
+decidua9 <- AddMetaData        (object = decidua9, metadata = "Two",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample D12 Decidua (2)
+decidua9 [["percent.mt"]]   <- PercentageFeatureSet (decidua9, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (decidua9), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (decidua9, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (decidua9, slot   = 'counts')              );
+decidua9 [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample D12 Decidua (2)
+VlnPlot(decidua9, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample D12 Decidua (2)
+filtered_decidua9 <- subset(decidua9, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+decidua9_SCE <- as.SingleCellExperiment(filtered_decidua9)
+#Performing scDblFinder
+decidua9_SCE <- scDblFinder(decidua9_SCE, dbr = 0.016, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_decidua9$scDblFinder.score <- decidua9_SCE$scDblFinder.score
+filtered_decidua9$scDblFinder.class <- decidua9_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_decidua9 <- subset (filtered_decidua9, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample D12 Decidua (2)
+filtered_decidua9 <- NormalizeData(filtered_decidua9)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample D12 Decidua (2)
+filtered_decidua9 <- CellCycleScoring   (filtered_decidua9, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample D12 Decidua (2)
+filtered_decidua9 <- FindVariableFeatures(filtered_decidua9, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample D12 Decidua (2)
+all.genes <- rownames(filtered_decidua9)
+filtered_decidua9 <- ScaleData(filtered_decidua9, features = all.genes)
+
+#Run PCA sample D12 Decidua (2)
+filtered_decidua9 <- RunPCA(filtered_decidua9)
+
+#Elbowplot sample D12 Decidua (2)
+ElbowPlot(filtered_decidua9, ndims=50)
+
+#Run UMAP sample D12 Decidua (2)
+filtered_decidua9 <- RunUMAP(filtered_decidua9, dims = 1:50)
+```
+
+```{r}
+#Visualize sample D12 Decidua (2) after filtering 
+Idents (filtered_decidua9) <- filtered_decidua9@meta.data$ID
+VlnPlot(filtered_decidua9, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered sample D12 Decidua (2) after Doublet Removal
+save(filtered_decidua9, file = "~/Objects/BATCH/filtered_decidua9.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Clear Space
+rm(list = ls())
+```
+
+```{r}
+#Read in 10x Data for sample 3D0 and convert to Seurat object
+ThreeR <- Read10X(data.dir = "~/RawOuts/3D0")
+ThreeR <- CreateSeuratObject (counts = ThreeR, min.features = 100, project = "3D0", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 3D0
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "3D0",             col.name = "ID"     )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "U3",            col.name = "rawID"  )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "in vitro",        col.name = "Type" )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "6",                col.name = "Batch"  )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "organoids",        col.name = "Model" )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "organoids",        col.name = "Tissue" )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "Low",                col.name = "Oxygen"   )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "3",        col.name = "OxygenCondition" )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "1",                col.name = "Time"   )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "undifferentiated", col.name = "State"  )
+ThreeR <- AddMetaData        (object = ThreeR, metadata = "Three",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 3D0
+ThreeR [["percent.mt"]]   <- PercentageFeatureSet (ThreeR, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (ThreeR), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (ThreeR, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (ThreeR, slot   = 'counts')              );
+ThreeR [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 3D0 
+VlnPlot(ThreeR, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 3D0
+filtered_ThreeR <- subset(ThreeR, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+ThreeR_SCE <- as.SingleCellExperiment(filtered_ThreeR)
+#Performing scDblFinder
+ThreeR_SCE <- scDblFinder(ThreeR_SCE, dbr = 0.078256, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_ThreeR$scDblFinder.score <- ThreeR_SCE$scDblFinder.score
+filtered_ThreeR$scDblFinder.class <- ThreeR_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_ThreeR <- subset (filtered_ThreeR, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 3D0
+filtered_ThreeR <- NormalizeData(filtered_ThreeR)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 3D0
+filtered_ThreeR <- CellCycleScoring   (filtered_ThreeR, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 3D0
+filtered_ThreeR <- FindVariableFeatures(filtered_ThreeR, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 3D0
+all.genes <- rownames(filtered_ThreeR)
+filtered_ThreeR <- ScaleData(filtered_ThreeR, features = all.genes)
+
+#Run PCA sample 3D0
+filtered_ThreeR <- RunPCA(filtered_ThreeR)
+
+#Elbowplot sample 3D0
+ElbowPlot(filtered_ThreeR, ndims=50)
+
+#Run UMAP sample 3D0
+filtered_ThreeR <- RunUMAP(filtered_ThreeR, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 3D0 after filtering
+Idents (filtered_ThreeR) <- filtered_ThreeR@meta.data$ID
+VlnPlot(filtered_ThreeR, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 3D0 after Doublet Removal
+save(filtered_ThreeR, file = "~/Objects/Samples_Filtered/filtered_ThreeR.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 21D0 and convert to Seurat object
+TwentyOneR <- Read10X(data.dir = "~/RawOuts/21D0")
+TwentyOneR <- CreateSeuratObject (counts = TwentyOneR, min.features = 100, project = "21D0", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 21D0
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "21D0",             col.name = "ID"     )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "U21",            col.name = "rawID"  )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "in vitro",        col.name = "Type" )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "4",                col.name = "Batch"  )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "organoids",                col.name = "Model"  )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "organoids",                col.name = "Tissue"  )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "High",                col.name = "Oxygen"   )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "21",        col.name = "OxygenCondition" )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "1",                col.name = "Time"   )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "undifferentiated", col.name = "State"  )
+TwentyOneR <- AddMetaData        (object = TwentyOneR, metadata = "Four",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 21D0
+TwentyOneR [["percent.mt"]]   <- PercentageFeatureSet (TwentyOneR, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (TwentyOneR), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (TwentyOneR, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (TwentyOneR, slot   = 'counts')              );
+TwentyOneR [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 21D0 
+VlnPlot(TwentyOneR, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 21D0
+filtered_TwentyOneR <- subset(TwentyOneR, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+TwentyOneR_SCE <- as.SingleCellExperiment(filtered_TwentyOneR)
+#Performing scDblFinder
+TwentyOneR_SCE <- scDblFinder(TwentyOneR_SCE, dbr = 0.0854, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_TwentyOneR$scDblFinder.score <- TwentyOneR_SCE$scDblFinder.score
+filtered_TwentyOneR$scDblFinder.class <- TwentyOneR_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_TwentyOneR <- subset (filtered_TwentyOneR, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 21D0
+filtered_TwentyOneR <- NormalizeData(filtered_TwentyOneR)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 21D0
+filtered_TwentyOneR <- CellCycleScoring   (filtered_TwentyOneR, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 21D0
+filtered_TwentyOneR <- FindVariableFeatures(filtered_TwentyOneR, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 21D0
+all.genes <- rownames(filtered_TwentyOneR)
+filtered_TwentyOneR <- ScaleData(filtered_TwentyOneR, features = all.genes)
+
+#Run PCA sample 21D0
+filtered_TwentyOneR <- RunPCA(filtered_TwentyOneR)
+
+#Elbowplot sample 21D0
+ElbowPlot(filtered_TwentyOneR, ndims=50)
+
+#Run UMAP sample 21D0
+filtered_TwentyOneR <- RunUMAP(filtered_TwentyOneR, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 21D0 after QC
+Idents (filtered_TwentyOneR) <- filtered_TwentyOneR@meta.data$ID
+VlnPlot(filtered_TwentyOneR, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 21D0 after Doublet Removal
+save(filtered_TwentyOneR, file = "~/Objects/Samples_Filtered/filtered_TwentyOneR.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 21D3 and convert to Seurat object
+TwentyOneThree <- Read10X(data.dir = "~/RawOuts/21D3")
+TwentyOneThree <- CreateSeuratObject (counts = TwentyOneThree, min.features = 100, project = "21D3", min.cells = 1)
+```
+
+
+```{r}
+# Add metadata to sample 21D3
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "21D3",             col.name = "ID"     )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "D21_3",            col.name = "rawID"  )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "in vitro",        col.name = "Type" )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "5",                col.name = "Batch"  )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "organoids",        col.name = "Model" )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "organoids",        col.name = "Tissue" )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "High",                col.name = "Oxygen"   )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "21",        col.name = "OxygenCondition" )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "2",                col.name = "Time"   )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "differentiated", col.name = "State"  )
+TwentyOneThree <- AddMetaData        (object = TwentyOneThree, metadata = "Four",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 21D3
+TwentyOneThree [["percent.mt"]]   <- PercentageFeatureSet (TwentyOneThree, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (TwentyOneThree), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (TwentyOneThree, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (TwentyOneThree, slot   = 'counts')              );
+TwentyOneThree [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 21D3 
+VlnPlot(TwentyOneThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 21D3
+filtered_TwentyOneThree <- subset(TwentyOneThree, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+TwentyOneThree_SCE <- as.SingleCellExperiment(filtered_TwentyOneThree)
+#Performing scDblFinder
+TwentyOneThree_SCE <- scDblFinder(TwentyOneThree_SCE, dbr = 0.0767, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_TwentyOneThree$scDblFinder.score <- TwentyOneThree_SCE$scDblFinder.score
+filtered_TwentyOneThree$scDblFinder.class <- TwentyOneThree_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_TwentyOneThree <- subset (filtered_TwentyOneThree, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 21D3
+filtered_TwentyOneThree <- NormalizeData(filtered_TwentyOneThree)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 21D3
+filtered_TwentyOneThree <- CellCycleScoring   (filtered_TwentyOneThree, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 21D3
+filtered_TwentyOneThree <- FindVariableFeatures(filtered_TwentyOneThree, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 21D3
+all.genes <- rownames(filtered_TwentyOneThree)
+filtered_TwentyOneThree <- ScaleData(filtered_TwentyOneThree, features = all.genes)
+
+#Run PCA sample 21D3
+filtered_TwentyOneThree <- RunPCA(filtered_TwentyOneThree)
+
+#Elbowplot sample 21D3
+ElbowPlot(filtered_TwentyOneThree, ndims=50)
+
+#Run UMAP sample 21D3
+filtered_TwentyOneThree <- RunUMAP(filtered_TwentyOneThree, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 21D3 after QC
+Idents (filtered_TwentyOneThree) <- filtered_TwentyOneThree@meta.data$ID
+VlnPlot(filtered_TwentyOneThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 21D3 
+save(filtered_TwentyOneThree, file = "~/Objects/Samples_Filtered/filtered_TwentyOneThree.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 21D7 and convert to Seurat object
+TwentyOneSeven <- Read10X(data.dir = "~/RawOuts/21D7")
+TwentyOneSeven <- CreateSeuratObject (counts = TwentyOneSeven, min.features = 100, project = "21D7", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 21D7
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "21D7",             col.name = "ID"     )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "D21_7",            col.name = "rawID"  )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "in vitro",        col.name = "Type" )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "6",                col.name = "Batch"  )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "organoids",        col.name = "Model" )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "organoids",        col.name = "Tissue" )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "High",                col.name = "Oxygen"   )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "21",        col.name = "OxygenCondition" )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "3",                col.name = "Time"   )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "differentiated", col.name = "State"  )
+TwentyOneSeven <- AddMetaData        (object = TwentyOneSeven, metadata = "Four",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 21D7
+TwentyOneSeven [["percent.mt"]]   <- PercentageFeatureSet (TwentyOneSeven, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (TwentyOneSeven), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (TwentyOneSeven, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (TwentyOneSeven, slot   = 'counts')              );
+TwentyOneSeven [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 21D7 
+VlnPlot(TwentyOneSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 21D7
+filtered_TwentyOneSeven <- subset(TwentyOneSeven, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+TwentyOneSeven_SCE <- as.SingleCellExperiment(filtered_TwentyOneSeven)
+#Performing scDblFinder
+TwentyOneSeven_SCE <- scDblFinder(TwentyOneSeven_SCE, dbr = 0.10147, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_TwentyOneSeven$scDblFinder.score <- TwentyOneSeven_SCE$scDblFinder.score
+filtered_TwentyOneSeven$scDblFinder.class <- TwentyOneSeven_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_TwentyOneSeven <- subset (filtered_TwentyOneSeven, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 21D7
+filtered_TwentyOneSeven <- NormalizeData(filtered_TwentyOneSeven)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 21D7
+filtered_TwentyOneSeven <- CellCycleScoring   (filtered_TwentyOneSeven, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 21D7
+filtered_TwentyOneSeven <- FindVariableFeatures(filtered_TwentyOneSeven, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 21D7
+all.genes <- rownames(filtered_TwentyOneSeven)
+filtered_TwentyOneSeven <- ScaleData(filtered_TwentyOneSeven, features = all.genes)
+
+#Run PCA sample 21D7
+filtered_TwentyOneSeven <- RunPCA(filtered_TwentyOneSeven)
+
+#Elbowplot sample 21D7
+ElbowPlot(filtered_TwentyOneSeven, ndims=50)
+
+#Run UMAP sample 21D7
+filtered_TwentyOneSeven <- RunUMAP(filtered_TwentyOneSeven, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 21D7 after Doublet Removal
+Idents (filtered_TwentyOneSeven) <- filtered_TwentyOneSeven@meta.data$ID
+VlnPlot(filtered_TwentyOneSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 21D7 after QC
+save(filtered_TwentyOneSeven, file = "~/Objects/Samples_Filtered/filtered_TwentyOneSeven.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 3D3 and convert to Seurat object
+ThreeThree <- Read10X(data.dir = "~/RawOuts/3D3")
+ThreeThree <- CreateSeuratObject (counts = ThreeThree, min.features = 100, project = "3D3", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 3D3
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "3D3",             col.name = "ID"     )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "D3_3",            col.name = "rawID"  )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "in vitro",        col.name = "Type" )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "7",                col.name = "Batch"  )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "organoids",        col.name = "Model" )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "organoids",        col.name = "Tissue" )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "Low",                col.name = "Oxygen"   )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "3",                col.name = "OxygenCondition"   )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "2",                col.name = "Time"   )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "differentiated", col.name = "State"  )
+ThreeThree <- AddMetaData        (object = ThreeThree, metadata = "Three",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 3D3
+ThreeThree [["percent.mt"]]   <- PercentageFeatureSet (ThreeThree, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (ThreeThree), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (ThreeThree, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (ThreeThree, slot   = 'counts')              );
+ThreeThree [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 3D3 
+VlnPlot(ThreeThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 3D3
+filtered_ThreeThree <- subset(ThreeThree, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+ThreeThree_SCE <- as.SingleCellExperiment(filtered_ThreeThree)
+#Performing scDblFinder
+ThreeThree_SCE <- scDblFinder(ThreeThree_SCE, dbr = 0.072408, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_ThreeThree$scDblFinder.score <- ThreeThree_SCE$scDblFinder.score
+filtered_ThreeThree$scDblFinder.class <- ThreeThree_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_ThreeThree <- subset (filtered_ThreeThree, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 3D3
+filtered_ThreeThree <- NormalizeData(filtered_ThreeThree)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 3D3
+filtered_ThreeThree <- CellCycleScoring   (filtered_ThreeThree, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 3D3
+filtered_ThreeThree <- FindVariableFeatures(filtered_ThreeThree, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 3D3
+all.genes <- rownames(filtered_ThreeThree)
+filtered_ThreeThree <- ScaleData(filtered_ThreeThree, features = all.genes)
+
+#Run PCA sample 3D3
+filtered_ThreeThree <- RunPCA(filtered_ThreeThree)
+
+#Elbowplot sample 3D3
+ElbowPlot(filtered_ThreeThree, ndims=50)
+
+#Run UMAP sample 3D3
+filtered_ThreeThree <- RunUMAP(filtered_ThreeThree, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 3D3 after QC
+Idents (filtered_ThreeThree) <- filtered_ThreeThree@meta.data$ID
+VlnPlot(filtered_ThreeThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 3D3 after Doublet Removal
+save(filtered_ThreeThree, file = "~/Objects/Samples_Filtered/filtered_ThreeThree.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 8D3 and convert to Seurat object
+EightThree <- Read10X(data.dir = "~/RawOuts/8D3")
+EightThree <- CreateSeuratObject (counts = EightThree, min.features = 100, project = "8D3", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 8D3
+EightThree <- AddMetaData        (object = EightThree, metadata = "8D3",             col.name = "ID"     )
+EightThree <- AddMetaData        (object = EightThree, metadata = "D8_3",            col.name = "rawID"  )
+EightThree <- AddMetaData        (object = EightThree, metadata = "in vitro",        col.name = "Type" )
+EightThree <- AddMetaData        (object = EightThree, metadata = "7",                col.name = "Batch"  )
+EightThree <- AddMetaData        (object = EightThree, metadata = "organoids",        col.name = "Model" )
+EightThree <- AddMetaData        (object = EightThree, metadata = "organoids",        col.name = "Tissue" )
+EightThree <- AddMetaData        (object = EightThree, metadata = "Low",                col.name = "Oxygen"   )
+EightThree <- AddMetaData        (object = EightThree, metadata = "8",        col.name = "OxygenCondition" )
+EightThree <- AddMetaData        (object = EightThree, metadata = "2",                col.name = "Time"   )
+EightThree <- AddMetaData        (object = EightThree, metadata = "differentiated", col.name = "State"  )
+EightThree <- AddMetaData        (object = EightThree, metadata = "Three",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 8D3
+EightThree [["percent.mt"]]   <- PercentageFeatureSet (EightThree, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (EightThree), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (EightThree, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (EightThree, slot   = 'counts')              );
+EightThree [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 8D3 
+VlnPlot(EightThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 8D3
+filtered_EightThree <- subset(EightThree, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+EightThree_SCE <- as.SingleCellExperiment(filtered_EightThree)
+#Performing scDblFinder
+EightThree_SCE <- scDblFinder(EightThree_SCE, dbr = 0.098008, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_EightThree$scDblFinder.score <- EightThree_SCE$scDblFinder.score
+filtered_EightThree$scDblFinder.class <- EightThree_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_EightThree <- subset (filtered_EightThree, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 8D3
+filtered_EightThree <- NormalizeData(filtered_EightThree)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 8D3
+filtered_EightThree <- CellCycleScoring   (filtered_EightThree, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 8D3
+filtered_EightThree <- FindVariableFeatures(filtered_EightThree, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 8D3
+all.genes <- rownames(filtered_EightThree)
+filtered_EightThree <- ScaleData(filtered_EightThree, features = all.genes)
+
+#Run PCA sample 8D3
+filtered_EightThree <- RunPCA(filtered_EightThree)
+
+#Elbowplot sample 8D3
+ElbowPlot(filtered_EightThree, ndims=50)
+
+#Run UMAP sample 8D3
+filtered_EightThree <- RunUMAP(filtered_EightThree, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 8D3 after QC
+Idents (filtered_EightThree) <- filtered_EightThree@meta.data$ID
+VlnPlot(filtered_EightThree, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 8D3 after Doublet Removal
+save(filtered_EightThree, file = "~/Objects/Samples_Filtered/filtered_EightThree.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 3D7 and convert to Seurat object
+ThreeSeven <- Read10X(data.dir = "~/RawOuts/3D7")
+ThreeSeven <- CreateSeuratObject (counts = ThreeSeven, min.features = 100, project = "3D7", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 3D7
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "3D7",             col.name = "ID"     )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "D3_7",            col.name = "rawID"  )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "in vitro",        col.name = "Type" )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "8",                col.name = "Batch"  )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "organoids",        col.name = "Model" )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "organoids",        col.name = "Tissue" )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "Low",                col.name = "Oxygen"   )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "3",        col.name = "OxygenCondition" )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "3",                col.name = "Time"   )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "differentiated", col.name = "State"  )
+ThreeSeven <- AddMetaData        (object = ThreeSeven, metadata = "Three",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 3D7
+ThreeSeven [["percent.mt"]]   <- PercentageFeatureSet (ThreeSeven, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (ThreeSeven), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (ThreeSeven, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (ThreeSeven, slot   = 'counts')              );
+ThreeSeven [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 3D7 
+VlnPlot(ThreeSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 3D7
+filtered_ThreeSeven <- subset(ThreeSeven, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+ThreeSeven_SCE <- as.SingleCellExperiment(filtered_ThreeSeven)
+#Performing scDblFinder
+ThreeSeven_SCE <- scDblFinder(ThreeSeven_SCE, dbr = 0.107256, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_ThreeSeven$scDblFinder.score <- ThreeSeven_SCE$scDblFinder.score
+filtered_ThreeSeven$scDblFinder.class <- ThreeSeven_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_ThreeSeven <- subset (filtered_ThreeSeven, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 3D7
+filtered_ThreeSeven <- NormalizeData(filtered_ThreeSeven)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 3D7
+filtered_ThreeSeven <- CellCycleScoring   (filtered_ThreeSeven, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 3D7
+filtered_ThreeSeven <- FindVariableFeatures(filtered_ThreeSeven, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 3D7
+all.genes <- rownames(filtered_ThreeSeven)
+filtered_ThreeSeven <- ScaleData(filtered_ThreeSeven, features = all.genes)
+
+#Run PCA sample 3D7
+filtered_ThreeSeven <- RunPCA(filtered_ThreeSeven)
+
+#Elbowplot sample 3D7
+ElbowPlot(filtered_ThreeSeven, ndims=50)
+
+#Run UMAP sample 3D7
+filtered_ThreeSeven <- RunUMAP(filtered_ThreeSeven, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 3D7 after QC
+Idents (filtered_ThreeSeven) <- filtered_ThreeSeven@meta.data$ID
+VlnPlot(filtered_ThreeSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 3D7 after Doublet Removal
+save(filtered_ThreeSeven, file = "~/Objects/Samples_Filtered/filtered_ThreeSeven.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+```{r}
+#Read in 10x Data for sample 8D7 and convert to Seurat object
+EightSeven <- Read10X(data.dir = "~/RawOuts/8D7")
+EightSeven <- CreateSeuratObject (counts = EightSeven, min.features = 100, project = "8D7", min.cells = 1)
+```
+
+```{r}
+# Add metadata to sample 8D7
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "8D7",             col.name = "ID"     )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "D8_7",            col.name = "rawID"  )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "in vitro",        col.name = "Type" )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "8",                col.name = "Batch"  )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "organoids",        col.name = "Model" )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "organoids",        col.name = "Tissue" )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "Low",                col.name = "Oxygen"   )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "8",        col.name = "OxygenCondition" )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "3",                col.name = "Time"   )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "differentiated", col.name = "State"  )
+EightSeven <- AddMetaData        (object = EightSeven, metadata = "Three",                col.name = "Integration"  )
+```
+
+```{r}
+# Add sample quality control metrics (% MT and % RP data) for sample 8D7
+EightSeven [["percent.mt"]]   <- PercentageFeatureSet (EightSeven, pattern = "^MT-")
+ribo.genes                  <- grep (pattern = "^RP[SL][[:digit:]]", x = rownames (EightSeven), value = TRUE);
+percent.ribo                <- Matrix::colSums (x = GetAssayData (EightSeven, slot   = 'counts')[ribo.genes, ]) / 
+                               Matrix::colSums (x = GetAssayData (EightSeven, slot   = 'counts')              );
+EightSeven [['percent.ribo']] <- percent.ribo
+```
+
+```{r}
+# Visualize Raw QC metrics as a violin plot for sample 8D7 
+VlnPlot(EightSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Filter sample 8D7
+filtered_EightSeven <- subset(EightSeven, subset= nCount_RNA >= 1000 & nCount_RNA < 80000 & nFeature_RNA >= 1250 & nFeature_RNA < 7500 & percent.mt < 20)
+```
+
+```{r}
+#Converting the Seurat object into SCE
+EightSeven_SCE <- as.SingleCellExperiment(filtered_EightSeven)
+#Performing scDblFinder
+EightSeven_SCE <- scDblFinder(EightSeven_SCE, dbr = 0.142112, includePCs = 50)
+#Assigning the scDbl score back to the Seurat Object
+filtered_EightSeven$scDblFinder.score <- EightSeven_SCE$scDblFinder.score
+filtered_EightSeven$scDblFinder.class <- EightSeven_SCE$scDblFinder.class
+#Filtering out Multiplets
+filtered_EightSeven <- subset (filtered_EightSeven, subset = scDblFinder.class == 'singlet')
+```
+
+```{r}
+#Normalize sample 3D7
+filtered_EightSeven <- NormalizeData(filtered_EightSeven)
+
+#Read in cell cycle marker genes
+s.genes   <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+#Cell Cycle Score sample 8D7
+filtered_EightSeven <- CellCycleScoring   (filtered_EightSeven, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+#Finding Variable Features sample 8D7
+filtered_EightSeven <- FindVariableFeatures(filtered_EightSeven, selection.method = "vst", nfeatures = 2000)
+
+#Scaling the expression of each gene for sample 8D7
+all.genes <- rownames(filtered_EightSeven)
+filtered_EightSeven <- ScaleData(filtered_EightSeven, features = all.genes)
+
+#Run PCA sample 8D7
+filtered_EightSeven <- RunPCA(filtered_EightSeven)
+
+#Elbowplot sample 8D7
+ElbowPlot(filtered_EightSeven, ndims=50)
+
+#Run UMAP sample 8D7
+filtered_EightSeven <- RunUMAP(filtered_EightSeven, dims = 1:50)
+```
+
+```{r}
+#Visualize sample 8D7 after QC
+Idents (filtered_EightSeven) <- filtered_EightSeven@meta.data$ID
+VlnPlot(filtered_EightSeven, features = c("nFeature_RNA", "nCount_RNA", "percent.mt","percent.ribo"), ncol = 4)
+```
+
+```{r}
+#Save Object: Filtered 8D7 after Doublet Removal
+save(filtered_EightSeven, file = "~/Objects/Samples_Filtered/filtered_EightSeven.RData")
+rm(list = ls(all.names = TRUE))
+```
+
+
