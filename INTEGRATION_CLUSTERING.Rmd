@@ -1,0 +1,191 @@
+---
+title: "Integration Trophoblasts"
+output: html_document
+date: "2024-02-01"
+---
+```{r}
+library(Seurat)
+library(SeuratWrappers)
+library(batchelor)
+library(ggplot2)
+library(clustree)
+library(sctransform)
+options (future.globals.maxSize = 1000000000000000000000000000000000000000000000000)
+```
+
+```{r}
+AllData <- merge (filtered_ThreeR, y = c(filtered_TwentyR ,
+                                            filtered_EightThree ,
+                                            filtered_ThreeThree ,
+                                            filtered_ThreeSeven ,
+                                            filtered_EightSeven ,
+                                            filtered_TwentySeven ,
+                                            filtered_TwentyThree,
+                                            filtered_placenta1,
+                                            filtered_placenta2,
+                                            filtered_placenta3,
+                                            filtered_placenta4,
+                                            filtered_placenta5,
+                                            filtered_placenta6,
+                                            filtered_placenta7,
+                                            filtered_placenta8,
+                                            filtered_placenta9,
+                                            filtered_placenta10,
+                                            filtered_placenta11,
+                                            filtered_placenta12,
+                                            filtered_placenta13,
+                                            filtered_placenta14,
+                                            filtered_placenta15,
+                                            filtered_placenta16,
+                                            filtered_decidua1,
+                                            filtered_decidua2,
+                                            filtered_decidua3,
+                                            filtered_decidua4,
+                                            filtered_decidua5,
+                                            filtered_decidua6,
+                                            filtered_decidua7,
+                                            filtered_decidua8,
+                                            filtered_decidua9),
+                          add.cell.ids  = c("3D0",  "20D0",  "8D3",  "3D3",  "3D7",  "8D7",  "20D7", "20D3", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11", "P12", "P13", "P14","P15", "P16","D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"),
+                          merge.data    = TRUE,
+                          project       = "10X_AllData")
+```
+
+```{r}
+# Add metadata for the cell cycle difference scores
+AllData$CC.Difference <- AllData$S.Score - AllData$G2M.Score
+```
+
+```{r}
+AllData <- JoinLayers(AllData)
+save(AllData, file = "~/Objects/AllData.RData")
+```
+
+```{r}
+AllData[["RNA"]] <- split(AllData[["RNA"]], f = AllData$Integration, layers = c('counts', 'data', 'scale.data'))
+```
+
+```{r}
+AllData <- SCTransform(AllData, verbose = FALSE, vars.to.regress = "CC.Difference", vst.flavor = "v2")
+AllData <- RunPCA(AllData)
+
+AllData <- IntegrateLayers(
+  object = AllData,
+  method = CCAIntegration,
+  normalization.method = "SCT", orig.reduction = "pca", new.reduction = "integrated.cca",
+  verbose = FALSE
+)
+
+AllData     <- FindNeighbors (AllData, reduction="integrated.cca")
+AllData     <- FindClusters  (AllData, resolution = 0.90)
+AllData     <- RunUMAP       (AllData, dims       = 1:50, reduction = "integrated.cca", reduction.name = "umap")
+```
+
+```{r}
+# Subset cells expressing known trophoblast lineage and gene markers
+trophoblasts <- subset (AllData,   subset =  KRT7      > 0 |
+                                                 EGFR      > 0 |
+                                                 TP63      > 0 |
+                                                 TEAD4     > 0 |
+                                                 TFAP2A    > 0 |
+                                                 TFAP2C    > 0 |
+                                                 GATA2     > 0 |
+                                                 GATA3     > 0 |
+                                                `HLA-G`    > 0 |
+                                                `ERVFRD-1` > 0 | 
+                                               Oxygen == 'High'| Oxygen == 'Low')
+rm (AllData)
+```
+
+```{r}
+# Subset to remove cells expressing genes that are not expressed by trophoblasts (remove any non-trophoblast contamination)
+trophoblastsFINAL <- subset (trophoblasts, subset = VIM       == 0 &
+                                                   WARS      == 0 &
+                                                   PTPRC     == 0 &
+                                                   DCN       == 0 &
+                                                   CD34      == 0 &
+                                                   CD14      == 0 &
+                                                   CD86      == 0 &
+                                                   CD163     == 0 &
+                                                   NKG7      == 0 &
+                                                   KLRD1     == 0 &
+                                                  `HLA-DPA1` == 0 &
+                                                  `HLA-DPB1` == 0 &
+                                                  `HLA-DRA`  == 0 &
+                                                  `HLA-DRB1` == 0 &
+                                                  `HLA-DRB5` == 0 &
+                                                  `HLA-DQA1` == 0 | Oxygen == 'High'| Oxygen == 'Low')
+rm            (trophoblasts)
+```
+
+```{r}
+#redo find neighbours/clusters
+trophoblastsFINAL     <- FindNeighbors (trophoblastsFINAL, reduction="integrated.cca", dims= 1:30)
+trophoblastsFINAL     <- FindClusters  (trophoblastsFINAL, resolution = 0.18)
+trophoblastsFINAL <- RunUMAP(trophoblastsFINAL, dims = 1:30, reduction = "integrated.cca", reduction.name = "umap")
+```
+
+```{r}
+#Plot UMAP
+UMAPPlot(trophoblastsFINAL) 
+```
+
+```{r}
+#Join Layers
+trophoblastsFINAL <- JoinLayers(trophoblastsFINAL)
+```
+
+```{r}
+#Run FindAllMarkers
+all_markers_trophoblastsFINAL <- FindAllMarkers(trophoblastsFINAL, only.pos = TRUE)
+
+# Save markers to file
+write.csv(all_markers_trophoblastsFINAL, 
+          file = "~/FINAL/allmarkers_trophoblastsFINAL.csv", 
+          quote = FALSE, 
+          row.names = FALSE)
+```
+
+```{r}
+#Analyze Known Trophoblast Markers in each cluster
+VlnPlot(trophoblastsFINAL, features = c("ITGA2"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("TAGLN"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("SOX15"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("NOTCH1"), assay = "RNA", pt.size = 0.5)
+VlnPlot(trophoblastsFINAL, features = c("HLA-G"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("SERPINE2"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("ADAM12"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("ERVV-1"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("CYP19A1"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("ITGA6"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("ITGA6"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("BCAM"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("EPCAM"), assay = "RNA", pt.size = 0)
+VlnPlot(trophoblastsFINAL, features = c("ELF5"), assay = "RNA", pt.size = 0.5)
+VlnPlot(trophoblastsFINAL, features = c("TP63"), assay = "RNA", pt.size = 0.5)
+VlnPlot(trophoblastsFINAL, features = c("TEAD4"), assay = "RNA", pt.size = 0)
+```
+
+```{r}
+#Name seurat clusters 
+new.cluster.ids <- c("CTB 2",
+                      "cCTB",
+                      "CTB 1",
+                      "EVT",
+                      "SCTp 1", 
+                      "SCTp 2")      
+names (new.cluster.ids)      <- levels       (trophoblastsFINAL)
+trophoblastsFINAL                 <- RenameIdents (trophoblastsFINAL, new.cluster.ids)
+trophoblastsFINAL$celltype <- Idents       (trophoblastsFINAL)
+```
+
+
+
+
+
+
+
+
+
+
+
