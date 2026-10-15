@@ -1,0 +1,642 @@
+---
+title: "Fig6"
+output: html_document
+date: "2025-09-03"
+---
+```{r}
+library(ggrepel)
+library(reshape2)
+library(gridExtra)
+library(DESeq2)
+library(readxl)
+library(dplyr)
+library(openxlsx)
+```
+
+```{r}
+#ARNT KD Bulk RNAseq  Prep
+metaData <- read_excel("~/BULK/BulkSeq_Metadata.xlsx")
+
+metaData2 <- metaData[, c("Sample", "Treatment", "Replicate", "Batch", "Timepoint")] %>%
+  as.data.frame()
+
+metaData2$Sample     <- as.factor(metaData2$Sample)
+metaData2$Treatment  <- as.factor(metaData2$Treatment)
+metaData2$Replicate  <- as.factor(metaData2$Replicate)
+metaData2$Batch      <- as.factor(metaData2$Batch)
+metaData2$Timepoint  <- as.factor(metaData2$Timepoint)
+
+metaData2 <- metaData2 %>%
+  column_to_rownames("Sample")
+
+metaData2
+
+CT0.1     <- read.table ("~/BULK/RawFiles/CT-0_1-GM-052026.quant.genes.sf", header = TRUE)
+CT0.1_TPM <-  CT0.1[ , c(1,4)]
+colnames (CT0.1_TPM)[colnames (CT0.1_TPM) == "TPM"] <- "CT0.1"
+
+CT3.1     <- read.table ("~/BULK/RawFiles/CT-3_1-GM-052026.quant.genes.sf", header = TRUE)
+CT3.1_TPM <-  CT3.1[ , c(1,4)]
+colnames (CT3.1_TPM)[colnames (CT3.1_TPM) == "TPM"] <- "CT3.1"
+
+CT7.1     <- read.table ("~/BULK/RawFiles/CT-7_1-GM-052026.quant.genes.sf", header = TRUE)
+CT7.1_TPM <-  CT7.1[ , c(1,4)]
+colnames (CT7.1_TPM)[colnames (CT7.1_TPM) == "TPM"] <- "CT7.1"
+
+AT0.1     <- read.table ("~/BULK/RawFiles/AT-0_1--GM-052026.quant.genes.sf", header = TRUE)
+AT0.1_TPM <-  AT0.1[ , c(1,4)]
+colnames (AT0.1_TPM)[colnames (AT0.1_TPM) == "TPM"] <- "AT0.1"
+
+AT3.1     <- read.table ("~/BULK/RawFiles/AT-3_1--GM-052026.quant.genes.sf", header = TRUE)
+AT3.1_TPM <-  AT3.1[ , c(1,4)]
+colnames (AT3.1_TPM)[colnames (AT3.1_TPM) == "TPM"] <- "AT3.1"
+
+AT7.1     <- read.table ("~/BULK/RawFiles/AT-7_1-GM-052026.quant.genes.sf", header = TRUE)
+AT7.1_TPM <-  AT7.1[ , c(1,4)]
+colnames (AT7.1_TPM)[colnames (AT7.1_TPM) == "TPM"] <- "AT7.1"
+
+CT0.2     <- read.table ("~/BULK/RawFiles/CT-0_2-GM-052026.quant.genes.sf", header = TRUE)
+CT0.2_TPM <-  CT0.2[ , c(1,4)]
+colnames (CT0.2_TPM)[colnames (CT0.2_TPM) == "TPM"] <- "CT0.2"
+
+CT3.2     <- read.table ("~/BULK/RawFiles/CT-3_2-GM-052026.quant.genes.sf", header = TRUE)
+CT3.2_TPM <-  CT3.2[ , c(1,4)]
+colnames (CT3.2_TPM)[colnames (CT3.2_TPM) == "TPM"] <- "CT3.2"
+
+CT7.2     <- read.table ("~/BULK/RawFiles/CT-7_2-GM-052026.quant.genes.sf", header = TRUE)
+CT7.2_TPM <-  CT7.2[ , c(1,4)]
+colnames (CT7.2_TPM)[colnames (CT7.2_TPM) == "TPM"] <- "CT7.2"
+
+AT0.2     <- read.table ("~/BULK/RawFiles/AT-0_2-GM-052026.quant.genes.sf", header = TRUE)
+AT0.2_TPM <-  AT0.2[ , c(1,4)]
+colnames (AT0.2_TPM)[colnames (AT0.2_TPM) == "TPM"] <- "AT0.2"
+
+AT3.2     <- read.table ("~/BULK/RawFiles/AT-3_2-GM-052026.quant.genes.sf", header = TRUE)
+AT3.2_TPM <-  AT3.2[ , c(1,4)]
+colnames (AT3.2_TPM)[colnames (AT3.2_TPM) == "TPM"] <- "AT3.2"
+
+AT7.2     <- read.table ("~/BULK/RawFiles/AT-7_2-GM-052026.quant.genes.sf", header = TRUE)
+AT7.2_TPM <-  AT7.2[ , c(1,4)]
+colnames (AT7.2_TPM)[colnames (AT7.2_TPM) == "TPM"] <- "AT7.2"
+
+CT0.3     <- read.table ("~/BULK/RawFiles/CT-0_3-GM-052026.quant.genes.sf", header = TRUE)
+CT0.3_TPM <-  CT0.3[ , c(1,4)]
+colnames (CT0.3_TPM)[colnames (CT0.3_TPM) == "TPM"] <- "CTCT0.3"
+
+CT3.3     <- read.table ("~/BULK/RawFiles/CT-3_3-GM-052026.quant.genes.sf", header = TRUE)
+CT3.3_TPM <-  CT3.3[ , c(1,4)]
+colnames (CT3.3_TPM)[colnames (CT3.3_TPM) == "TPM"] <- "CT3.3"
+
+CT7.3     <- read.table ("~/BULK/RawFiles/CT-7_3-GM-052026.quant.genes.sf", header = TRUE)
+CT7.3_TPM <-  CT7.3[ , c(1,4)]
+colnames (CT7.3_TPM)[colnames (CT7.3_TPM) == "TPM"] <- "CT7.3"
+
+AT0.3     <- read.table ("~/BULK/RawFiles/AT-0_3-GM-052026.quant.genes.sf", header = TRUE)
+AT0.3_TPM <-  AT0.3[ , c(1,4)]
+colnames (AT0.3_TPM)[colnames (AT0.3_TPM) == "TPM"] <- "AT0.3"
+
+AT3.3     <- read.table ("~/BULK/RawFiles/AT-3_3-GM-052026.quant.genes.sf", header = TRUE)
+AT3.3_TPM <-  AT3.3[ , c(1,4)]
+colnames (AT3.3_TPM)[colnames (AT3.3_TPM) == "TPM"] <- "AT3.3"
+
+AT7.3     <- read.table ("~/BULK/RawFiles/AT-7_3-GM-052026.quant.genes.sf", header = TRUE)
+AT7.3_TPM <-  AT7.3[ , c(1,4)]
+colnames (AT7.3_TPM)[colnames (AT7.3_TPM) == "TPM"] <- "AT7.3"
+
+TPM_Data <- Reduce(
+  function(x, y) merge(x, y, by = "Name", all = TRUE),
+  list(
+    CT0.1_TPM, CT3.1_TPM, CT7.1_TPM,
+    AT0.1_TPM, AT3.1_TPM, AT7.1_TPM,
+    CT0.2_TPM, CT3.2_TPM, CT7.2_TPM,
+    AT0.2_TPM, AT3.2_TPM, AT7.2_TPM,
+    CT0.3_TPM, CT3.3_TPM, CT7.3_TPM,
+    AT0.3_TPM, AT3.3_TPM, AT7.3_TPM
+  )
+)
+
+TPM_Data$Name <- gsub   ("\\..*", "", TPM_Data$Name)
+TPM_Data$Name <- mapIds (org.Hs.eg.db,
+                         keys      = TPM_Data$Name,
+                         keytype   = "ENSEMBL",
+                         column    = "SYMBOL",
+                         multiVals = "first")
+
+TPM_Data <- aggregate (. ~ Name, data = TPM_Data, FUN = mean)
+TPM_Data <- TPM_Data %>% column_to_rownames ("Name")
+TPM_Data
+all (colnames (TPM_Data) == metaData2$Sample)
+TPM_Data
+
+log_TPM_Data    <- log2    (    TPM_Data  + 1)
+keep            <- rowSums (log_TPM_Data >= 1) > 3                      
+fltlog_TPM_Data <- log_TPM_Data[keep, ] %>% rownames_to_column ("Gene")
+fltlog_TPM_Data
+
+CT0.1_NumReads <-  CT0.1[ , c(1,5)]
+colnames (CT0.1_NumReads)[colnames (CT0.1_NumReads) == "NumReads"] <- "CT0.1"
+
+CT3.1_NumReads <-  CT3.1[ , c(1,5)]
+colnames (CT3.1_NumReads)[colnames (CT3.1_NumReads) == "NumReads"] <- "CT3.1"
+
+CT7.1_NumReads <-  CT7.1[ , c(1,5)]
+colnames (CT7.1_NumReads)[colnames (CT7.1_NumReads) == "NumReads"] <- "CT7.1"
+
+AT0.1_NumReads <-  AT0.1[ , c(1,5)]
+colnames (AT0.1_NumReads)[colnames (AT0.1_NumReads) == "NumReads"] <- "AT0.1"
+
+AT3.1_NumReads <-  AT3.1[ , c(1,5)]
+colnames (AT3.1_NumReads)[colnames (AT3.1_NumReads) == "NumReads"] <- "AT3.1"
+
+AT7.1_NumReads <-  AT7.1[ , c(1,5)]
+colnames (AT7.1_NumReads)[colnames (AT7.1_NumReads) == "NumReads"] <- "AT7.1"
+
+CT0.2_NumReads <-  CT0.2[ , c(1,5)]
+colnames (CT0.2_NumReads)[colnames (CT0.2_NumReads) == "NumReads"] <- "CT0.2"
+
+CT3.2_NumReads <-  CT3.2[ , c(1,5)]
+colnames (CT3.2_NumReads)[colnames (CT3.2_NumReads) == "NumReads"] <- "CT3.2"
+
+CT7.2_NumReads <-  CT7.2[ , c(1,5)]
+colnames (CT7.2_NumReads)[colnames (CT7.2_NumReads) == "NumReads"] <- "CT7.2"
+
+AT0.2_NumReads <-  AT0.2[ , c(1,5)]
+colnames (AT0.2_NumReads)[colnames (AT0.2_NumReads) == "NumReads"] <- "AT0.2"
+
+AT3.2_NumReads <-  AT3.2[ , c(1,5)]
+colnames (AT3.2_NumReads)[colnames (AT3.2_NumReads) == "NumReads"] <- "AT3.2"
+
+AT7.2_NumReads <-  AT7.2[ , c(1,5)]
+colnames (AT7.2_NumReads)[colnames (AT7.2_NumReads) == "NumReads"] <- "AT7.2"
+
+CT0.3_NumReads <-  CT0.3[ , c(1,5)]
+colnames (CT0.3_NumReads)[colnames (CT0.3_NumReads) == "NumReads"] <- "CT0.3"
+
+CT3.3_NumReads <-  CT3.3[ , c(1,5)]
+colnames (CT3.3_NumReads)[colnames (CT3.3_NumReads) == "NumReads"] <- "CT3.3"
+
+CT7.3_NumReads <-  CT7.3[ , c(1,5)]
+colnames (CT7.3_NumReads)[colnames (CT7.3_NumReads) == "NumReads"] <- "CT7.3"
+
+AT0.3_NumReads <-  AT0.3[ , c(1,5)]
+colnames (AT0.3_NumReads)[colnames (AT0.3_NumReads) == "NumReads"] <- "AT0.3"
+
+AT3.3_NumReads <-  AT3.3[ , c(1,5)]
+colnames (AT3.3_NumReads)[colnames (AT3.3_NumReads) == "NumReads"] <- "AT3.3"
+
+AT7.3_NumReads <-  AT7.3[ , c(1,5)]
+colnames (AT7.3_NumReads)[colnames (AT7.3_NumReads) == "NumReads"] <- "AT7.3"
+
+countData <- Reduce(
+  function(x, y) merge(x, y, by = "Name", all = TRUE),
+  list(
+    CT0.1_NumReads, CT3.1_NumReads, CT7.1_NumReads,
+    AT0.1_NumReads, AT3.1_NumReads, AT7.1_NumReads,
+    CT0.2_NumReads, CT3.2_NumReads, CT7.2_NumReads,
+    AT0.2_NumReads, AT3.2_NumReads, AT7.2_NumReads,
+    CT0.3_NumReads, CT3.3_NumReads, CT7.3_NumReads,
+    AT0.3_NumReads, AT3.3_NumReads, AT7.3_NumReads
+  )
+)
+countData$Name <- gsub   ("\\..*", "", countData$Name)
+countData$Name <- mapIds (org.Hs.eg.db,
+                          keys      = countData$Name,
+                          keytype   = "ENSEMBL",
+                          column    = "SYMBOL",
+                          multiVals = "first")
+
+countData <- aggregate (. ~ Name, data = countData, FUN = mean)
+countData <- countData %>% column_to_rownames ("Name")
+countData
+all (colnames (countData) == metaData2$Sample)
+
+```
+
+```{r}
+#Figure 6G
+mat <- as.matrix(fltlog_TPM_Data)
+mode(mat) <- "numeric"
+pca <- prcomp(t(mat), center = TRUE, scale. = TRUE)
+pca_df <- as.data.frame(pca$x)
+
+pca_df$Treatment <- metaData2$Treatment
+pca_df$Replicate <- metaData2$Replicate
+pca_df$Batch     <- metaData2$Batch
+pca_df$Timepoint <- metaData2$Timepoint
+
+pdf("PC1_PC4.pdf", width = 10, height = 6)
+ggplot(pca_df,
+       aes(x = PC1,
+           y = PC4,
+           color = Treatment,
+           shape = Timepoint)) +
+  geom_point(size = 4) +
+  geom_text_repel(aes(label = Replicate),
+                  size = 4,
+                  show.legend = FALSE) +
+  xlab(paste0("PC1, ", round(summary(pca)$importance[2,1] * 100, 2), "% variation")) +
+  ylab(paste0("PC4, ", round(summary(pca)$importance[2,4] * 100, 2), "% variation")) +
+  theme_classic()
+dev.off()
+```
+
+```{r}
+#Figure 6H
+#DGE Analysis for Day 7 samples 
+countData_CT7_AT7 <- countData[, c(
+  "CT7.1", "CT7.2", "CT7.3",
+  "AT7.1", "AT7.2", "AT7.3"
+)]
+
+countData_CT7_AT7$CT7.1  <- as.integer (countData_CT7_AT7$CT7.1)
+countData_CT7_AT7$CT7.2  <- as.integer (countData_CT7_AT7$CT7.2)
+countData_CT7_AT7$CT7.3  <- as.integer (countData_CT7_AT7$CT7.3)
+countData_CT7_AT7$AT7.1  <- as.integer (countData_CT7_AT7$AT7.1)
+countData_CT7_AT7$AT7.2  <- as.integer (countData_CT7_AT7$AT7.2)
+countData_CT7_AT7$AT7.3  <- as.integer (countData_CT7_AT7$AT7.3)
+
+keep_samples <- c(
+  "CT7.1", "CT7.2", "CT7.3",
+  "AT7.1", "AT7.2", "AT7.3"
+)
+metadata_CT7_AT7 <- metaData2[rownames(metaData2) %in% keep_samples, ]
+metadata_CT7_AT7 <- metadata_CT7_AT7[keep_samples, ]
+all(rownames(metadata_CT7_AT7) == keep_samples)
+
+counts          <- as.matrix  (countData_CT7_AT7)
+meta            <- as.matrix  (metadata_CT7_AT7)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = round(counts),
+  colData = meta,
+  design = ~ Replicate + Treatment
+)
+
+dds$Treatment <- factor(dds$Treatment, levels = c("1", "2"))
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+
+dds <- DESeq(dds)
+
+res <- results(dds)
+
+resSig <- subset(res, padj < 0.05)
+resSig_df <- as.data.frame(resSig)
+
+top50_sig <- resSig_df[order(resSig_df$padj), ][1:50, ]
+data <- as.data.frame      (resSig)
+data <- rownames_to_column (data, "Symbol")
+write.xlsx(data,"D7_DGE.xlsx")
+
+keyvals  <- ifelse (res$log2FoldChange <= -1 & res$pvalue <= 10e-5, "#76d6ffff",
+                   ifelse (res$log2FoldChange >=  1 & res$pvalue <= 10e-5, "#5e5e5eff", "#D9D9D9FF"))
+
+names (keyvals) <- ifelse (res$log2FoldChange <= -1 & res$pvalue <= 10e-5, "Control Day 7",
+                   ifelse (res$log2FoldChange >=  1 & res$pvalue <= 10e-5, "ARNT Day 7", "NS"))
+
+keygenes <- c("IGFBP3", "ARNT", "FN1", "PLAC8", "HLA-G", "CYP19A1", "CGA", "CGB5", "ERVV-2", "ERVFRD-1")
+
+pdf("Day7DGE.pdf", width = 10, height = 6)
+EnhancedVolcano (res,
+                 lab             = rownames (res),
+                 x               = "log2FoldChange",
+                 y               = "padj",
+                 FCcutoff        = 0.5,
+                 pCutoff         = 10e-5,
+                 pointSize       = 2.0,
+                 colCustom       = keyvals,
+                 colAlpha        = 1,
+                 selectLab = keygenes,
+                 xlim            = c(-4, 4),
+                 ylim            = c(0, 150),
+                 gridlines.major = FALSE,
+                 drawConnectors  = FALSE, 
+                 gridlines.minor = FALSE) + ggtitle (NULL)
+```
+
+```{r}
+#Figure 6I
+#Interaction Analysis 
+dds <- DESeqDataSetFromMatrix(
+  countData = round(counts),
+  colData = meta,
+  design = ~ Replicate + Timepoint + Treatment + Timepoint:Treatment
+)
+
+# filter low expression genes
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep, ]
+
+# run DESeq
+dds <- DESeq(dds)
+
+# results
+resultsNames(dds)
+
+res_time <- results(dds, name = "Timepoint_3_vs_0")
+res_interaction <- results(dds, name = "Timepoint3.Treatment2")
+time_df <- as.data.frame(res_time)
+time_df$Gene <- rownames(time_df)
+
+interaction_df <- as.data.frame(res_interaction)
+interaction_df$Gene <- rownames(interaction_df)
+
+combined <- merge(
+  time_df[, c("Gene", "log2FoldChange", "padj")],
+  interaction_df[, c("Gene", "log2FoldChange", "padj")],
+  by = "Gene",
+  suffixes = c("_time", "_interaction")
+)
+HIF_independent <- combined[
+  !is.na(combined$padj_time) &
+  !is.na(combined$padj_interaction) &
+  combined$padj_time < 0.05 &
+  combined$log2FoldChange_time > 1 &
+  combined$padj_interaction > 0.05,
+]
+
+data <- as.data.frame      (HIF_independent)
+data <- rownames_to_column (data, "Symbol")
+write.xlsx(data,"HIF_Independent_Day3.xlsx")
+norm_counts <- counts(dds, normalized = TRUE)
+HIF_independent$mean_expression <- rowMeans(
+  norm_counts[HIF_independent$Gene, ]
+)
+summary(HIF_independent$mean_expression)
+```
+
+```{r}
+HIF_independent_filtered <- HIF_independent[
+  HIF_independent$mean_expression > 50,
+]
+
+data <- as.data.frame      (HIF_independent_filtered)
+data <- rownames_to_column (data, "Symbol")
+write.xlsx(data,"HIF_Independent_filt_Day3.xlsx")
+
+#Filtering to get only the TFs
+TFs <- read.table(
+  "https://humantfs.ccbr.utoronto.ca/download/v_1.01/TF_names_v_1.01.txt",
+  header = FALSE,
+  stringsAsFactors = FALSE
+)
+colnames(TFs) <- "TF"
+write.csv(TFs, "HumanTFs.csv", row.names = FALSE)
+HIF_independent_Day3 <- read.xlsx("~/Downloads/HIF_Independent_filt_Day3.xlsx")
+HIF_independent_TFs <- HIF_independent_Day3[
+  HIF_independent_Day3$Gene %in% TFs$TF,
+]
+data <- as.data.frame(HIF_independent_TFs)
+write.xlsx(data,"~/Desktop/HIF_independent_TFs_Day3.xlsx"
+)
+#Add expression level to TFs list
+gene_list <- read_excel(
+  path = "~/Desktop/HIF_independent_TFs_Day3.xlsx"
+)
+norm_counts <- counts(
+  dds,
+  normalized = TRUE
+)
+day3_expression <- data.frame(
+  Gene = rownames(norm_counts),
+  Day3_mean = rowMeans(
+    norm_counts[, day3_samples, drop = FALSE]
+  )
+)
+gene_list_with_expression <- gene_list %>%
+  left_join(
+    day3_expression,
+    by = "Gene"
+  )
+data <- as.data.frame(gene_list_with_expression)
+write.xlsx(data,"~/Desktop/HIF_independent_TFs_Day3_Expression.xlsx"
+)
+
+#Load organoid object and combine CTB and SCTp clusters 
+organoids$cell_type_simple <- dplyr::case_when(
+  organoids$`celltype` %in% c("CTB 1", "CTB 2") ~ "CTB",
+  organoids$`celltype` %in% c("SCTp 1", "SCTp 2") ~ "SCTp",
+  TRUE ~ organoids$`celltype`
+)
+organoids$celltype_condition <- paste(
+  organoids$OxygenCondition,
+  organoids$cell_type_simple,
+  sep = "_"
+)
+#Plot TFs in Table S8 split by cluster and oxygen condition to identify if they are EVT or SCT lineage specific and if they are specific to the low oxygen conditions or not
+
+#Final Plot in Figure 6I
+organoids <- SetIdent(organoids, value = organoids@meta.data$celltype_condition)
+Idents(organoids) <- factor(Idents(organoids),
+                            levels = c("20_CTB",  "8_CTB",  "3_CTB", "20_cCTB",  "8_cCTB",  "3_cCTB",
+               "20_EVT",  "8_EVT",  "3_EVT","20_SCTp",  "8_SCTp",  "3_SCTp"))
+
+pdf("DAY3_TFs_Condition_CellType_DotPlot.pdf", width = 11, height = 7)
+DotPlot (organoids,
+         features  = c("FOSL2",
+"SOX15",
+"RELB",
+"IRF1",
+"MYCL",
+"PHF1",
+"ANKZF1",
+"ELK3",
+"JUN",
+"MYC",
+"ETS1",
+"HIVEP2",
+"SMAD3",
+"BNC1",
+"SOX9",
+"FOXO3",
+"ZBED2",
+"KLF6"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+```{r}
+#Supplemental Figure 6B
+meltedfltlog_TPM_Data <- fltlog_TPM_Data %>% melt (id = "Gene") 
+pdf("Boxplot_Normalized_TPM.pdf", width = 10, height = 6)  
+meltedfltlog_TPM_Data %>%
+  ggplot(aes(x = variable, y = value, fill = variable)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+dev.off()
+```
+```{r}
+#Supplemental Figure 6C
+mat <- as.matrix(fltlog_TPM_Data)
+mode(mat) <- "numeric"
+
+pca <- prcomp(t(mat), center = TRUE, scale. = TRUE)
+Scores <- as.data.frame(pca$x)
+
+meta <- metaData2[rownames(Scores), ]
+
+meta_categorical <- meta[, c("Treatment", "Replicate", "Batch", "Timepoint")]
+
+
+vars <- pca$sdev^2
+importance <- vars / sum(vars)
+
+pca_df <- data.frame(
+  PC = seq_along(importance),
+  Variance = importance * 100
+)
+
+Num <- min(10, nrow(pca_df))
+
+
+scree <- ggplot(pca_df[1:Num, ], aes(x = PC, y = Variance)) +
+  geom_col(fill = "grey70", color = "black") +
+  theme_classic() +
+  xlab("Principal Component") +
+  ylab("% Variance Explained")
+
+aov_PC_meta <- lapply(seq_len(ncol(meta_categorical)), function(covar) {
+
+  covar_vec <- meta_categorical[[covar]]
+
+  sapply(1:min(Num, ncol(Scores)), function(PC) {
+    summary(aov(Scores[, PC] ~ covar_vec))[[1]]$`Pr(>F)`[1]
+  })
+
+})
+
+aov_PC_meta <- as.data.frame(do.call(rbind, aov_PC_meta))
+
+rownames(aov_PC_meta) <- colnames(meta_categorical)
+colnames(aov_PC_meta) <- paste0("PC", seq_len(ncol(aov_PC_meta)))
+
+heat_df <- melt(as.matrix(aov_PC_meta))
+colnames(heat_df) <- c("Metadata", "PC", "Pvalue")
+
+
+heat_df$PvalueClass <- cut(
+  heat_df$Pvalue,
+  breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+  labels = c("≤0.001", "≤0.01", "≤0.05", ">0.05")
+)
+
+
+heat_df$Metadata <- factor(
+  heat_df$Metadata,
+  levels = c("Batch", "Replicate", "Treatment", "Timepoint")
+)
+
+heat <- ggplot(heat_df, aes(x = PC, y = Metadata, fill = PvalueClass)) +
+  geom_tile(color = "black") +
+  scale_fill_manual(
+    values = c("#08306b", "#4292c6", "#9ecae1", "#f0f0f0")
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    legend.position = "top"
+  ) +
+  xlab("Principal Component") +
+  ylab(NULL)
+
+
+pdf("PCs_Barplot.pdf", width = 10, height = 6)
+
+grid.arrange(
+  scree,
+  heat,
+  ncol = 1,
+  heights = c(2, 4)
+)
+
+dev.off()
+```
+
+```{r}
+#Supplemental Figure 6D
+#Load Day 7 DGE output
+all_genes <- as.character (rownames (res))
+
+signif_CONT <- res[res$padj < 0.05 & res$log2FoldChange < -0.5 & !is.na (res$padj), ]
+signif_CONT <- as.character (rownames (signif_CONT))
+
+CONT <- enrichGO (gene          = signif_CONT,
+                   universe      = all_genes,
+                   keyType       = "SYMBOL",
+                   OrgDb         = "org.Hs.eg.db",
+                   ont           = "BP",
+                   pAdjustMethod = "BH",
+                   qvalueCutoff  = 0.05)
+
+
+cluster_summary_CONT <- data.frame (CONT)
+
+signif_ARNT <- res[res$padj < 0.05 & res$log2FoldChange > 0.5 & !is.na (res$padj), ]
+signif_ARNT <- as.character (rownames (signif_ARNT))
+
+ARNT <- enrichGO (gene          = signif_ARNT,
+                 universe      = all_genes,
+                 keyType       = "SYMBOL",
+                 OrgDb         = "org.Hs.eg.db",
+                 ont           = "BP",
+                 pAdjustMethod = "BH",
+                 qvalueCutoff  = 0.05)
+
+
+cluster_summary_ARNT <- data.frame (ARNT)
+
+      options (enrichplot.colours = c("#76d6ffff", "grey"))
+P1 <- dotplot (CONT, showCategory = 20) + xlim (0, 0.15)
+
+      options (enrichplot.colours = c("#5e5e5eff", "grey"))
+P2 <- dotplot (ARNT,   showCategory = 20) + xlim (0, 0.15)
+
+pdf("GOTerms.pdf", width = 12, height = 7)
+P1 + P2
+dev.off()
+```
+
+```{r}
+#Supplemental Figure 6E
+#Load organoid scRNAseq object
+Idents(organoids) <- factor(Idents(organoids),
+                            levels = c("CTB 1",  "CTB 2",  "cCTB","EVT",  "SCTp 1",  "SCTp 2"))
+
+pdf("DAY7DGE_Pvalue_CellType_DotPlot.pdf", width = 13, height = 4)
+DotPlot (organoids,
+         features  = c("DDIT4",
+"FN1",
+"LOXL2",
+"PNCK",
+"NDRG1",
+"KRT17",
+"SLC2A3",
+"ARNT",
+"EBI3",
+"PLAC8",
+"CGA",
+"FABP7",
+"LCMT1-AS2",
+"DAB2",
+"HMOX1",
+"HSD17B1",
+"KCNK3",
+"CTSL",
+"LIFR",
+"SLC43A2"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+

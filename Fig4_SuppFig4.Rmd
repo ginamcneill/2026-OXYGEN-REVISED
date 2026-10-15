@@ -1,0 +1,564 @@
+---
+title: "Fig4_SuppFig4"
+output: html_document
+date: "2025-12-11"
+---
+```{r}
+library(SCPA)
+library(Seurat)
+library(tidyverse)
+library(ggplot2)
+library(msigdbr)
+library(magrittr)
+library(EnhancedVolcano)
+library(dplyr)
+library(Seurat)
+library(ComplexHeatmap)
+library(circlize)
+#Edit compare_seurat function in SCPA to increase downsampling to 1000 cells
+compare_seurat <- function(seurat_object,
+                           assay = "RNA",
+                           group1 = NULL,
+                           group1_population = NULL,
+                           group2 = NULL,
+                           group2_population = NULL,
+                           pathways,
+                           downsample = 1000,
+                           min_genes = 15,
+                           max_genes = 500,
+                           parallel = FALSE,
+                           cores = NULL) {
+  ## Pathways
+  if (class(pathways)[1] == "character") {
+    pathways <- get_paths(pathways)
+  }
+  path_names <- sapply(pathways, function(x) unique(x$Pathway))
+  ## Convert population to character vector
+  group1_population <- as.character(group1_population)
+  ## Seurat extract
+  if (is.null(group2)) {
+    samples <- list()
+    for (i in group1_population) {
+      samples[[i]] <- seurat_extract(seurat_object,
+                                     assay = assay,
+                                     meta1 = group1,
+                                     value_meta1 = i)
+    }
+  }
+  if (!is.null(group2)) {
+    samples <- list()
+    for (i in group1_population) {
+      samples[[i]] <- seurat_extract(seurat_object,
+                                     assay = assay,
+                                     meta1 = group1,
+                                     value_meta1 = i,
+                                     meta2 = group2,
+                                     value_meta2 = group2_population)
+    }
+  }
+  if (parallel == FALSE) {
+    mcm_output <- compare_pathways(samples = samples,
+                                   pathways = pathways,
+                                   downsample = downsample,
+                                   min_genes = min_genes,
+                                   max_genes = max_genes)
+  } else {
+    mcm_output <- compare_pathways(samples = samples,
+                                   pathways = pathways,
+                                   downsample = downsample,
+                                   min_genes = min_genes,
+                                   max_genes = max_genes,
+                                   parallel = TRUE,
+                                   cores = cores)
+  }
+  return(mcm_output)
+}
+```
+
+```{r}
+#Figure 4A + Supplemental Figure 4A and 4B
+pathways <- msigdbr(species = "Homo sapiens", category = "H") %>%
+      format_pathways()
+#Subset Conditions
+trophoblastsFINAL <- SetIdent(trophoblastsFINAL, value = trophoblastsFINAL@meta.data$OxygenCondition)
+invivo <- subset (trophoblastsFINAL, idents = "in vivo")
+TwentyOne <- subset (trophoblastsFINAL, idents = "20")
+Three <- subset (trophoblastsFINAL, idents = "3")
+Eight <- subset (trophoblastsFINAL, idents = "8")
+
+#Run SCPA
+CTB1_EVT_invivo_H <- compare_seurat(invivo,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("CTB 1", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+CTB1_EVT_Three_H <- compare_seurat(Three,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("CTB 1", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+CTB1_EVT_TwentyOne_H <- compare_seurat(TwentyOne,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("CTB 1", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+#Plot SCPA Output
+pdf         ("invivo_CTB1_EVT_H.pdf", height = 9, width = 10)
+CTB1_EVT_invivo_H <- CTB1_EVT_invivo_H %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#00C19A",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#FFD92F',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- CTB1_EVT_invivo_H %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- CTB1_EVT_invivo_H %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+OXPHOS_path <- CTB1_EVT_invivo_H %>% 
+  filter(grepl(pattern = "HALLMARK_OXIDATIVE_PHOSPHORYLATION", ignore.case = T, x = Pathway))
+
+
+
+ggplot(CTB1_EVT_invivo_H, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = CTB1_EVT_invivo_H$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  geom_point(data = OXPHOS_path, shape = 21, cex = 2.8, fill = "turquoise", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(5,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+
+pdf         ("TwentyOne_CTB1_EVT_H.pdf", height = 9, width = 10)
+CTB1_EVT_TwentyOne_H <- CTB1_EVT_TwentyOne_H %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#00C19A",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#FFD92F',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- CTB1_EVT_TwentyOne_H %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- CTB1_EVT_TwentyOne_H %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+OXPHOS_path <- CTB1_EVT_TwentyOne_H %>% 
+  filter(grepl(pattern = "HALLMARK_OXIDATIVE_PHOSPHORYLATION", ignore.case = T, x = Pathway))
+
+
+
+ggplot(CTB1_EVT_TwentyOne_H, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = CTB1_EVT_TwentyOne_H$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  geom_point(data = OXPHOS_path, shape = 21, cex = 2.8, fill = "turquoise", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(5,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+
+pdf         ("Three_CTB1_EVT_H.pdf", height = 9, width = 10)
+CTB1_EVT_Three_H <- CTB1_EVT_Three_H %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#00C19A",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#FFD92F',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- CTB1_EVT_Three_H %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- CTB1_EVT_Three_H %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+OXPHOS_path <- CTB1_EVT_Three_H %>% 
+  filter(grepl(pattern = "HALLMARK_OXIDATIVE_PHOSPHORYLATION", ignore.case = T, x = Pathway))
+
+
+
+ggplot(CTB1_EVT_Three_H, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = CTB1_EVT_Three_H$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  geom_point(data = OXPHOS_path, shape = 21, cex = 2.8, fill = "turquoise", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(5,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+```
+
+```{r}
+#Figure 4B
+#Run SCPA
+cCTB_EVT_invivo_H <- compare_seurat(invivo,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("cCTB", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+cCTB_EVT_Three_H <- compare_seurat(Three,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("cCTB", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+cCTB_EVT_TwentyOne_H <- compare_seurat(TwentyOne,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("cCTB", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+cCTB_EVT_Eight_H <- compare_seurat(Eight,
+                           assay = "RNA",
+                           group1 = "celltype", 
+                           group1_population = c("cCTB", "EVT"),
+                           pathways = pathways,
+                           parallel = TRUE, cores = 8)
+
+#Plot SCPA Output
+pdf         ("invivo_cCTB_EVT_H.pdf", height = 9, width = 10)
+cCTB_EVT_invivo_SCPA <- cCTB_EVT_invivo_SCPA %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#AE017E",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#4DAF4A',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- cCTB_EVT_invivo_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- cCTB_EVT_invivo_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+
+
+ggplot(cCTB_EVT_invivo_SCPA, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = cCTB_EVT_invivo_SCPA$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(3,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+
+pdf         ("TwentyOne_cCTB_EVT_H.pdf", height = 9, width = 10)
+cCTB_EVT_TwentyOne_SCPA <- cCTB_EVT_TwentyOne_SCPA %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#AE017E",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#4DAF4A',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- cCTB_EVT_TwentyOne_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- cCTB_EVT_TwentyOne_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+
+
+ggplot(cCTB_EVT_TwentyOne_SCPA, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = cCTB_EVT_TwentyOne_SCPA$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(3,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+
+pdf         ("Eight_cCTB_EVT_H.pdf", height = 9, width = 10)
+cCTB_EVT_Eight_SCPA <- cCTB_EVT_Eight_SCPA %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#AE017E",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#4DAF4A',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- cCTB_EVT_Eight_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- cCTB_EVT_Eight_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+
+
+ggplot(cCTB_EVT_Eight_SCPA, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = cCTB_EVT_Eight_SCPA$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(3,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+
+pdf         ("Three_cCTB_EVT_H.pdf", height = 9, width = 10)
+cCTB_EVT_Three_SCPA <- cCTB_EVT_Three_SCPA %>%
+  mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ "#AE017E",
+                           FC < 5 & FC > -5 & adjPval < 0.01 ~ 'grey',
+                           FC < -5 & adjPval < 0.01 ~ '#4DAF4A',
+                           FC < 5 & FC > -5 & adjPval > 0.01 ~ 'grey20'))
+EMT_path <- cCTB_EVT_Three_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", ignore.case = T, x = Pathway))
+HYPOXIA_path <- cCTB_EVT_Three_SCPA %>% 
+  filter(grepl(pattern = "HALLMARK_HYPOXIA", ignore.case = T, x = Pathway))
+
+
+ggplot(cCTB_EVT_Three_SCPA, aes(-FC, qval)) +
+  geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
+  geom_point(cex = 2.6, shape = 21, fill = cCTB_EVT_Three_SCPA$color, stroke = 0.3) +
+  geom_point(data = EMT_path, shape = 21, cex = 2.8, fill = "yellow", color = "black", stroke = 0.3) +
+  geom_point(data = HYPOXIA_path, shape = 21, cex = 2.8, fill = "purple", color = "black", stroke = 0.3) +
+  xlim(-38, 38) +
+  ylim(3,15) +
+  xlab("Enrichment") +
+  ylab("Qval") +
+  theme(panel.background = element_blank(),
+        panel.border = element_rect(fill = NA),
+        aspect.ratio = 1)
+dev.off     ()
+```
+
+```{r}
+#Figure 4C, Supp Figure 4A, Supp Figure 4B, Table S4
+write.csv (CTB1_EVT_invivo_H, file = "CTB1_EVT_invivo_SCPA.csv")
+write.csv (CTB1_EVT_Three_H, file = "CTB1_EVT_Three_SCPA.csv")
+write.csv (CTB1_EVT_TwentyOne_H, file = "CTB1_EVT_TwentyOne_SCPA.csv")
+write.csv (cCTB_EVT_invivo_H, file = "cCTB_EVT_invivo_SCPA.csv")
+write.csv (cCTB_EVT_Three_H, file = "cCTB_EVT_Three_SCPA.csv")
+write.csv (cCTB_EVT_TwentyOne_H, file = "cCTB_EVT_TwentyOne_SCPA.csv")
+write.csv (cCTB_EVT_Eight_H, file = "cCTB_EVT_Eight_SCPA.csv")
+```
+
+```{r}
+#Figure 4D
+#DGE between 3% and 21% cCTB 
+DefaultAssay (trophoblastsFINAL) <- "RNA"
+cCTB3_cCTB20_DGE  <-     FindMarkers (trophoblastsFINAL,
+                                  ident.1            = "cCTB_3",
+                                  ident.2            = "cCTB_20",
+                                  test.use           = "MAST",
+                                  logfc.threshold    = -Inf,
+                                  min.pct            = -Inf,
+                                  min.diff.pct       = -Inf,
+                                  verbose            = FALSE)
+                    head         (cCTB3_cCTB20_DGE, n = 50)
+write.csv (cCTB3_cCTB20_DGE, file = "cCTB3_cCTB20_DGE.csv")
+
+#Plot DGE output
+# Make a custom color scheme
+keygenes <- c("IGFBP3", "JUN", "FOS", "FN1", "ITGA2", "HLA-G", "PLAUR", "PLAC8", "COL17A1", "ITGB6", "TAGLN","PEG10", "ERVW-1", "PAGE4", "CGB3")
+
+# Define thresholds
+fc_thresh <- 1
+p_thresh  <- 1e-10
+
+# Start with all grey
+custom.colors <- rep("grey", nrow(cCTB3_cCTB20_DGE))
+names(custom.colors) <- rownames(cCTB3_cCTB20_DGE)
+
+# Downregulated significant genes → purple
+down.genes <- rownames(cCTB3_cCTB20_DGE)[
+  cCTB3_cCTB20_DGE$avg_log2FC <= -fc_thresh &
+  cCTB3_cCTB20_DGE$p_val_adj <= p_thresh
+]
+custom.colors[down.genes] <- "purple"
+
+# Upregulated significant genes → blue
+up.genes <- rownames(cCTB3_cCTB20_DGE)[
+  cCTB3_cCTB20_DGE$avg_log2FC >= fc_thresh &
+  cCTB3_cCTB20_DGE$p_val_adj <= p_thresh
+]
+custom.colors[up.genes] <- "blue"
+
+# Key genes → red (overrides blue/purple)
+keygenes <- intersect(keygenes, rownames(cCTB3_cCTB20_DGE))  # ensure they exist
+custom.colors[keygenes] <- "red"
+
+# Make the volcano plot
+pdf("cCTB_VOLCANO_fixed.pdf", width = 10, height = 7)
+
+EnhancedVolcano(
+  cCTB3_cCTB20_DGE,
+  lab = rownames(cCTB3_cCTB20_DGE),
+  x = "avg_log2FC",
+  y = "p_val_adj",
+  FCcutoff = fc_thresh,
+  pCutoff = p_thresh,
+  pointSize = 4.0,
+  colCustom = custom.colors,
+  colAlpha = 1,
+  selectLab = keygenes,
+  xlim = c(-6, 6),
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = TRUE,
+  legendPosition = "none",
+  title = NULL
+)
+
+dev.off()
+```
+
+```{r}
+#Figure 4E
+#DGE between 3% and 21% EVT
+DefaultAssay (trophoblastsFINAL) <- "RNA"
+EVT3_EVT21_DGE  <-     FindMarkers (trophoblastsFINAL,
+                                  ident.1            = "EVT_3",
+                                  ident.2            = "EVT_20",
+                                  test.use           = "MAST",
+                                  logfc.threshold    = -Inf,
+                                  min.pct            = -Inf,
+                                  min.diff.pct       = -Inf,
+                                  verbose            = FALSE)
+                    head         (EVT3_EVT21_DGE, n = 50)
+write.csv (EVT3_EVT21_DGE, file = "EVT3_EVT21_DGE.csv")
+
+#Plot DGE output
+keygenes <- c("CSH1", "CGB8", "HTRA4", "MMP15", "CGB5", "PSG6", "PSG2", "NOTUM", "CDH5", "ITGB6", "TAGLN","EGFR", "EGR1", "BCAM", "EPCAM")
+# Define thresholds
+fc_thresh <- 1
+p_thresh  <- 1e-10
+
+# Start with all grey
+custom.colors <- rep("grey", nrow(EVT3_EVT21_DGE))
+names(custom.colors) <- rownames(EVT3_EVT21_DGE)
+
+# Downregulated significant genes → purple
+down.genes <- rownames(EVT3_EVT21_DGE)[
+  EVT3_EVT21_DGE$avg_log2FC <= -fc_thresh &
+  EVT3_EVT21_DGE$p_val_adj <= p_thresh
+]
+custom.colors[down.genes] <- "purple"
+
+# Upregulated significant genes → blue
+up.genes <- rownames(EVT3_EVT21_DGE)[
+  EVT3_EVT21_DGE$avg_log2FC >= fc_thresh &
+  EVT3_EVT21_DGE$p_val_adj <= p_thresh
+]
+custom.colors[up.genes] <- "blue"
+
+# Key genes → red (overrides blue/purple)
+keygenes <- intersect(keygenes, rownames(EVT3_EVT21_DGE))  # ensure they exist
+custom.colors[keygenes] <- "red"
+
+# Make the volcano plot
+pdf("EVT_VOLCANO_fixed.pdf", width = 10, height = 7)
+
+EnhancedVolcano(
+  EVT3_EVT21_DGE,
+  lab = rownames(EVT3_EVT21_DGE),
+  x = "avg_log2FC",
+  y = "p_val_adj",
+  FCcutoff = fc_thresh,
+  pCutoff = p_thresh,
+  pointSize = 4.0,
+  colCustom = custom.colors,
+  colAlpha = 1,
+  selectLab = keygenes,
+  xlim = c(-8, 8),
+  gridlines.major = FALSE,
+  gridlines.minor = FALSE,
+  drawConnectors = TRUE,
+  legendPosition = "none",
+  title = NULL
+)
+
+dev.off()
+```
+
+```{r}
+#Figure 4F
+#Adding a condition.celltype metadata
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+pdf("HIFSubunits.pdf", width = 5, height = 10)
+DotPlot (EVTlineage,
+         features  = c("HIF1A", "EPAS1", "ARNT"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+```{r}
+#Supplemental Figure 4C
+#Perform DGE on CTB1 and EVT cells
+trophoblastsFINAL <- SetIdent(trophoblastsFINAL, value = trophoblastsFINAL@meta.data$celltype)
+DefaultAssay (trophoblastsFINAL) <- "RNA"
+CTB_EVT_DGE  <-     FindMarkers (trophoblastsFINAL,
+                                  ident.1            = "CTB 1",
+                                  ident.2            = "EVT",
+                                  test.use           = "MAST",
+                                  logfc.threshold    = -Inf,
+                                  min.pct            = -Inf,
+                                  min.diff.pct       = -Inf,
+                                  verbose            = FALSE)
+                    head         (CTB_EVT_DGE, n = 50)
+write.csv (CTB_EVT_DGE, file = "CTB_EVT_DGE.csv")
+
+#Get the list of genes from the Hallmark "Hypoxia" gene set
+pathways <- msigdbr(species = "Homo sapiens", category = "H") # data frame
+hypoxia_genes <- pathways %>%
+  filter(gs_name == "HALLMARK_HYPOXIA") %>%
+  pull(gene_symbol) %>%
+  unique()
+top_hypoxia_genes <- CTB_EVT_DGE %>%
+  rownames_to_column("gene") %>%
+  filter(
+    gene %in% hypoxia_genes,    # only Hallmark Hypoxia genes
+    abs(avg_log2FC) > 0.25,    # fold change cutoff
+  ) %>%
+  arrange(desc(abs(avg_log2FC))) %>%
+  slice(1:50) %>%               # top 50 genes by absolute fold change
+  pull(gene)
+
+# Subset CTB1 and EVT in 3% and 21%
+trophoblastsFINAL <- SetIdent(trophoblastsFINAL, value = trophoblastsFINAL@meta.data$celltype.condition)
+CTB_EVT_org <- subset (trophoblastsFINAL, idents = c("CTB 1_3", "CTB 1_20", "EVT_3", "EVT_20"))
+
+#Plot Heatmap
+avg_exp <- AggregateExpression(
+  CTB_EVT_org,
+  features = top_hypoxia_genes,
+  group.by = "celltype_condition",
+  assays = "RNA",
+  slot = "data"
+)$RNA
+
+avg_exp_scaled <- t(scale(t(avg_exp)))  
+
+col_fun <- colorRamp2(
+  breaks = c(min(avg_exp_scaled), 0, max(avg_exp_scaled)),
+  colors = c("blue", "white", "red")
+)
+
+Heatmap(
+  avg_exp_scaled,
+  name = "Expression",
+  col = col_fun,
+  cluster_rows = TRUE,    
+  cluster_columns = FALSE, 
+  show_column_names = TRUE,
+  column_title = "Cell Types",
+  row_names_gp = gpar(fontsize = 10),
+  column_names_gp = gpar(fontsize = 10)
+)
+```
+
+

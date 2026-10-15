@@ -1,0 +1,572 @@
+---
+title: "Fig3_SuppFig3"
+output: html_document
+date: "2025-09-03"
+---
+```{r}
+library(monocle3)
+library(Seurat)
+library(SeuratWrappers)
+library(ggplot2)
+library(patchwork)
+library(tibble)
+library(ggbeeswarm)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+```
+
+```{r}
+#Figure 3A
+#Monocle3 Analysis in EVTLineage
+EVTlineage <- subset (organoids, idents = c("CTB 1", "CTB 2", "cCTB", "EVT"))
+rm(organoids)
+EVT.monocle3 <- as.cell_data_set(EVTlineage, assay = "RNA")
+rm(EVTlineage)
+EVT.monocle3 <- estimate_size_factors (EVT.monocle3)
+EVT.monocle3 <- cluster_cells         (EVT.monocle3,
+                                       reduction_method = c("UMAP"),
+                                       cluster_method   = "leiden",
+                                       partition_qval   = 0.05,
+                                       resolution       = 0.00025)
+
+p1  <- plot_cells (EVT.monocle3,                               show_trajectory_graph = FALSE)
+p2  <- plot_cells (EVT.monocle3, color_cells_by = "partition", show_trajectory_graph = FALSE)
+wrap_plots        (p1, p2)
+EVT.monocle3 <- learn_graph (EVT.monocle3, use_partition = FALSE, close_loop = TRUE)
+get_earliest_principal_node <- function(EVT.monocle3, time_bin="1"){
+  cell_ids <- which(colData(EVT.monocle3)[, "Time"] == time_bin)
+  
+  closest_vertex <-
+  EVT.monocle3@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(EVT.monocle3), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(EVT.monocle3)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+EVT.monocle3 <- order_cells(EVT.monocle3, root_pr_nodes=get_earliest_principal_node(EVT.monocle3))
+#Add pseudotime values back into Seurat object
+EVT.monocle3$monocle3_pseudotime <- pseudotime(EVT.monocle3)
+EVTlineage$pseudotime <- pseudotime(EVT.monocle3)
+#EVTLineage UMAP
+pdf         ("UMAP_EVTLineage.pdf", height = 5, width = 9)
+UMAPPlot(EVTlineage, label=FALSE, order= TRUE, pt.size = 1, 
+         cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'cCTB'   = '#AE017E',
+                      'EVT'    = '#FFD92F'))
+dev.off     ()
+#EVTLineage Monocle3 UMAP
+pdf         ("UMAP_Monocle3.pdf", height = 5, width = 9)
+plot_cells (EVT.monocle3,
+            color_cells_by = "pseudotime",
+            label_cell_groups             = FALSE,
+            label_leaves                  = FALSE,
+            label_branch_points           = FALSE,
+            graph_label_size              = 0,
+            cell_size                     = 1,
+            trajectory_graph_color        = "black",
+            trajectory_graph_segment_size = 1)
+dev.off     ()
+```
+
+```{r}
+#Figure 4B
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+EVT.monocle3 <- as.cell_data_set(EVTlineage, assay = "RNA")
+pt_df_sdz <- data.frame(
+  pseudotime = colData(EVT.monocle3)$pseudotime,
+  Condition = colData(EVT.monocle3)$OxygenCondition,
+  cell_type = colData(EVT.monocle3)$celltype
+)
+cell_type_colors <- c(
+  'CTB 1'  = '#00C19A',
+  'CTB 2'  = '#999999',
+  'cCTB'   = '#AE017E',
+  'EVT'    = '#FFD92F')
+
+condition_colors <- c(
+  "20" = "darkorchid",
+  "3" = "blue",
+  "8" = "palegreen1")
+pdf         ("DensityPlot.pdf", height = 7, width = 10)
+ggplot(pt_df_sdz, aes(x = pseudotime, y = Condition)) +
+  geom_quasirandom(
+    aes(color = cell_type),
+    groupOnX = FALSE,
+    varwidth = FALSE,
+    size = 1,
+    alpha = 1
+  ) +
+  scale_color_manual(values = cell_type_colors) +
+  labs(x = NULL, y = "Condition", color = "Cell Type") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    panel.grid.major.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.title.y = element_text(angle = 90, vjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(0, 10, 0, 10)
+  )+ NoLegend()
+dev.off     ()
+
+pdf         ("DensityLineGraph.pdf", height = 7, width = 10)
+ggplot(pt_df_sdz, aes(x = pseudotime, color = Condition)) +
+  geom_density(size = 1.5) +
+  scale_color_manual(values = condition_colors) +
+  labs(x = "Pseudotime", y = "Density") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(0, 10, 0, 10)
+  )
+dev.off     ()
+
+#Significance Testing
+kruskal.test(pseudotime ~ OxygenCondition, data = EVTlineage@meta.data)
+
+# Run pairwise Wilcoxon test
+pw <- pairwise.wilcox.test(
+  EVTlineage$pseudotime,
+  EVTlineage$OxygenCondition,
+  p.adjust.method = "BH"
+)
+```
+```{r}
+#Figure 3C
+#Make the 3%, 8%, and 21% Objects
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+Three <- subset (EVTlineage, idents = "3")
+Three[["RNA"]] <- as(Three[["RNA"]], Class="Assay")
+Three <- SetIdent(Three, value = Three@meta.data$celltype)
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+TwentyOne <- subset (EVTlineage, idents = "20")
+TwentyOne[["RNA"]] <- as(TwentyOne[["RNA"]], Class="Assay")
+TwentyOne <- SetIdent(TwentyOne, value = TwentyOne@meta.data$celltype)
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+Eight <- subset (EVTlineage, idents = "8")
+Eight[["RNA"]] <- as(Eight[["RNA"]], Class="Assay")
+Eight <- SetIdent(Eight, value = Eight@meta.data$celltype)
+Three <- RenameIdents (Three, `CTB 1` = "#00C19A", `CTB 2` = "#999999",`cCTB` ="#AE017E", `EVT` = "#FFD92F")
+Eight <- RenameIdents (Eight, `CTB 1` = "#00C19A", `CTB 2` = "#999999",`cCTB` ="#AE017E", `EVT` = "#FFD92F")
+TwentyOne <- RenameIdents (TwentyOne, `CTB 1` = "#00C19A", `CTB 2` = "#999999",`cCTB` ="#AE017E", `EVT` = "#FFD92F")
+
+#Analysis for ITGA2
+GENE       <- as.data.frame      (Three@assays$RNA@counts["ITGA2", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (Three))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (Three@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+pdf         ("ITGA2_Three_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = Three@meta.data$pseudotime,
+                  y = Three@assays$RNA@counts["ITGA2", ])) +
+geom_point  (colour = Idents(Three), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                             
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+
+GENE       <- as.data.frame      (TwentyOne@assays$RNA@counts["ITGA2", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (TwentyOne))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (TwentyOne@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+
+pdf         ("ITGA2_TwentyOne_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = TwentyOne@meta.data$pseudotime,
+                  y = TwentyOne@assays$RNA@counts["ITGA2", ])) +
+geom_point  (colour = Idents(TwentyOne), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                            
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+
+GENE       <- as.data.frame      (Eight@assays$RNA@counts["ITGA2", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (Eight))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (Eight@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+
+pdf         ("ITGA2_Eight_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = Eight@meta.data$pseudotime,
+                  y = Eight@assays$RNA@counts["ITGA2", ])) +
+geom_point  (colour = Idents(Eight), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                             
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+```
+
+```{r}
+#Figure 3F
+#Load in SCT-OUT Bulk RNA-Seq dataset
+#| label: defining genes for heatmap
+CCC <- c("TAGLN","CDH5", "SOX15", "ITGB6", "ITGA2", "NOTCH1")
+
+EVT <- c("PLAC8", "ITGA5", "HLA-G")
+
+# Combine all into one ordered list
+genes1 <- c(CCC, EVT)
+
+# doublew check
+genes1
+genes1 %in% rownames(counts_selected)
+
+### data to plot
+
+#### calculate cpm values
+
+#| label: cpm values
+all_counts_selected.bc.cpm <- edgeR:::cpm(counts_selected.CBSeq_byD, log=FALSE)
+
+data2plot1bc <- data.frame()
+
+for (gene in unique(genes1)) {
+    data2plot1bc <- rbind(data2plot1bc,
+                          all_counts_selected.bc.cpm[rownames(all_counts_selected.bc.cpm) == gene, ])
+}
+
+rownames(data2plot1bc) <- genes1
+colnames(data2plot1bc) <- colnames(all_counts_selected.bc.cpm)
+
+
+# Scale and center
+data2plot1bc.sc <- t(scale(t(data2plot1bc)))
+colnames(data2plot1bc)
+
+#### assemble data in custom order
+
+data2plot1bc.sc <- t(scale(t(data2plot1bc)))
+colnames(data2plot1bc.sc)
+# Custom order
+
+custom_order <- c(
+  "Z143_p21_r4",
+  "Z228_p21_r4",
+  "Z149_p21_r4",
+  "X113b_p21_r6",
+  "Y060_p21_r4",
+
+  "Z143_p2_r4",
+  "Z228_p2_r4",
+  "Z149_p2_r4",
+  "X113b_p2_r6",
+  "Y060_p2_r4"
+)
+
+
+custom_order <- custom_order[custom_order %in% colnames(data2plot1bc.sc)]
+
+# Reorder the columns in the data frame 
+data2plot1bc.sc <- data2plot1bc.sc[, custom_order]
+
+
+length(custom_order)
+custom_order
+
+colnames(data2plot1bc.sc)
+
+pdf(file.path(plot_dir, "Figure_3.pdf"), height = 10, width = 12)
+
+Heatmap(data2plot1bc.sc, cluster_columns = FALSE, cluster_rows = FALSE,
+        heatmap_legend_param = list(title = "cpm (c/s)", color_bar = "continuous"),
+        column_title = "TO identity")
+
+dev.off()
+### and plot
+#| label: Fig 3 e
+
+pdf(file.path(plot_dir, "Figure_3EC.pdf"), height = 10, width = 12)
+
+pheatmap(
+  data2plot1bc.sc,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  border_color = NA,
+  main = "Marker Expression",
+  name = "centred and scaled",
+  breaks = seq(-2, 2, length.out = 101)
+)
+
+dev.off()
+```
+
+```{r}
+#Figure 3H
+df <- read_excel("~/Desktop/InvasionAnalysis.xlsx")
+
+df$Condition <- factor(df$Condition)
+df$Replicate <- factor(df$Replicate)
+df$Patient <- factor(df$Patient)
+df$Timepoint <- factor(df$Timepoint)
+
+# Calculate replicate means separately for each patient, replicate,
+# oxygen condition, and timepoint
+rep_means <- df %>%
+  group_by(Condition, Timepoint, Patient, Replicate) %>%
+  summarize(
+    mean_size = mean(Size),
+    .groups = "drop"
+  )
+
+# Create combined plotting variable
+df$Group <- paste0(df$Condition, "% Day ", df$Timepoint)
+rep_means$Group <- paste0(rep_means$Condition, "% Day ", rep_means$Timepoint)
+
+# Set plotting order
+group_order <- c(
+  "21% Day 0",
+  "21% Day 8",
+  "3% Day 0",
+  "3% Day 8"
+)
+
+df$Group <- factor(df$Group, levels = group_order)
+rep_means$Group <- factor(rep_means$Group, levels = group_order)
+
+# Plot
+pdf("Invasion_Superplot.pdf", height = 5, width = 9)
+
+ggplot() +
+
+  # Individual organoids
+  geom_quasirandom(
+    data = df,
+    aes(
+      x = Group,
+      y = Size,
+      color = Replicate,
+      shape = Patient
+    ),
+    width = 0.28,
+    alpha = 0.65,
+    size = 2
+  ) +
+
+  # Biological replicate means
+  geom_point(
+    data = rep_means,
+    aes(
+      x = Group,
+      y = mean_size,
+      fill = Replicate,
+      shape = Patient
+    ),
+    color = "black",
+    stroke = 0.8,
+    size = 5
+  ) +
+
+  labs(
+    x = "",
+    y = "CellNumber",
+    shape = "Patient",
+    color = "Replicate",
+    fill = "Replicate"
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 700),
+    breaks = seq(0, 700, by = 100),
+    expand = expansion(mult = c(0, 0))
+  ) +
+
+  # Replicate colours
+  scale_color_manual(
+    values = c(
+      "1" = "#D55E00",
+      "2" = "#009E73"
+    )
+  ) +
+
+  scale_fill_manual(
+    values = c(
+      "1" = "#D55E00",
+      "2" = "#009E73"
+    )
+  ) +
+
+  # Patient symbols
+  scale_shape_manual(
+    values = c(
+      "X113" = 21,
+      "Z142" = 24
+    )
+  ) +
+
+  theme_classic(base_size = 16) +
+
+  theme(
+    legend.position = "right",
+    legend.title = element_text(),
+    axis.title.y = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    axis.line = element_line(linewidth = 0.8)
+  )
+
+dev.off()
+```
+
+```{r}
+#Supplemental Figure 3A
+#Load in EVTlineage Object for each condition
+#Example analysis for one gene (HLA-G)
+GENE       <- as.data.frame      (Three@assays$RNA@counts["HLA-G", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (Three))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (Three@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+pdf         ("HLA-G_Three_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = Three@meta.data$pseudotime,
+                  y = Three@assays$RNA@counts["HLA-G", ])) +
+geom_point  (colour = Idents(Three), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                             
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+
+GENE       <- as.data.frame      (TwentyOne@assays$RNA@counts["HLA-G", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (TwentyOne))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (TwentyOne@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+
+pdf         ("HLA-G_TwentyOne_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = TwentyOne@meta.data$pseudotime,
+                  y = TwentyOne@assays$RNA@counts["HLA-G", ])) +
+geom_point  (colour = Idents(TwentyOne), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                            
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+
+GENE       <- as.data.frame      (Eight@assays$RNA@counts["HLA-G", ])
+GENE       <- rownames_to_column (GENE,  "Cell")
+State      <- as.data.frame      (Idents (Eight))
+State      <- rownames_to_column (State, "Cell")
+Plot       <- merge              (GENE, State, by = "Cell")
+Plot       <- rownames_to_column (Plot,  "#")
+Pseudotime <- as.data.frame      (Eight@meta.data$pseudotime)
+Pseudotime <- rownames_to_column (Pseudotime, "#")
+Plot       <- merge              (Plot, Pseudotime, by = "#")
+Plot       <- column_to_rownames (Plot, "#")
+Plot       <- remove_rownames    (Plot)
+Plot       <- column_to_rownames (Plot, "Cell")
+Plot
+
+pdf         ("HLA-G_Eight_Exp.pdf", height = 9, width = 10)
+ggplot      (Plot,
+             aes (x = Eight@meta.data$pseudotime,
+                  y = Eight@assays$RNA@counts["HLA-G", ])) +
+geom_point  (colour = Idents(Eight), size  = 4) +
+geom_smooth (colour = "black", size = 4) +
+xlim        (0, 35) +                             
+xlab        ("Pseudotime") +                      
+ylim        (0, 250) +                             
+ylab        ("Expression") +
+theme       (axis.line  = element_line (size = 1, colour = "black"),
+             axis.ticks = element_line (size = 1, colour = "black")) +
+theme       (panel.background = element_blank ())
+dev.off     ()
+```
+
+```{r}
+#Supplemental Figure 3B
+#Adding a condition.Time metadata
+EVTlineage <- SetIdent(EVTlineage, value = EVTlineage@meta.data$OxygenCondition)
+EVTlineage$condition.Time  <- paste       (Idents (EVTlineage), EVTlineage$Time, sep = "_")
+EVTlineage$OxygenCondition        <- Idents      (EVTlineage)
+       Idents (EVTlineage) <- "condition.Time"
+Idents(EVTlineage) <- factor(Idents(EVTlineage),
+                            levels = c("20_1",  "3_1","20_2",  "8_2",  "3_2", "20_3",  "8_3",  "3_3"))
+
+
+pdf("cCTB_EVT_Time.pdf", width = 7, height = 5)
+DotPlot (EVTlineage,
+         features  = c("TEAD4", "NOTCH1", "TAGLN", "ITGA2", "ITGB6", "HLA-G", "ITGA5", "SERPINE2", "ITGA1", "NOTUM"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+
+

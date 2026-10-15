@@ -1,0 +1,265 @@
+---
+title: "Fig1_SuppFig1"
+output: html_document
+date: "2025-09-03"
+---
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(monocle3)
+library(SeuratWrappers)
+library(ggplot2)
+library(patchwork)
+library(tibble)
+library(ggbeeswarm)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+```
+
+```{r}
+#Figure 1C
+pdf         ("UMAP_Integrated.pdf", height = 5, width = 9)
+UMAPPlot (trophoblastsFINAL,
+          label   = FALSE,
+          order = TRUE,
+          pt.size = 0.5,
+          cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'cCTB'   = '#AE017E',
+                      'EVT'    = '#FFD92F',
+                      'SCTp 1' = '#8C510A',
+                      'SCTp 2' = '#FF7F00')) + NoLegend()
+dev.off     ()
+```
+
+```{r}
+#Figure 1D
+#Sub-setting Trophoblast Object to get Organoid only object
+trophoblastsFINAL <- SetIdent(trophoblastsFINAL, value = trophoblastsFINAL@meta.data$Tissue)
+organoids <- subset (trophoblastsFINAL, idents = "organoids")
+pdf         ("UMAP_Time.pdf", height = 5, width = 9)
+UMAPPlot (organoids, split.by= "Time",
+          label   = FALSE,
+          order = TRUE,
+          pt.size = 0.5,
+          cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'cCTB'   = '#AE017E',
+                      'EVT'    = '#FFD92F',
+                      'SCTp 1' = '#8C510A',
+                      'SCTp 2' = '#FF7F00')) + NoLegend()
+dev.off     ()
+```
+
+```{r}
+#Figure 1E
+#Calculating Proportion of cells in each condition at each timepoint
+#Three
+organoids <- SetIdent(organoids, value = organoids@meta.data$OxygenCondition)
+Three <- subset (organoids, idents = "3")
+Three <- SetIdent(Three, value = Three@meta.data$Time)
+Three_Day0 <- subset (Three, idents = "1")
+Three_Day3 <- subset (Three, idents = "2")
+Three_Day7 <- subset (Three, idents = "3")
+Three_Day0 <- SetIdent(Three_Day0, value = Three_Day0@meta.data$seurat_clusters)
+table(Idents(Three_Day0))
+Three_Day3 <- SetIdent(Three_Day3, value = Three_Day3@meta.data$seurat_clusters)
+table(Idents(Three_Day3))
+Three_Day7 <- SetIdent(Three_Day7, value = Three_Day7@meta.data$seurat_clusters)
+table(Idents(Three_Day7))
+
+#TwentyOne
+TwentyOne <- subset (organoids, idents = "20")
+TwentyOne <- SetIdent(TwentyOne, value = TwentyOne@meta.data$Time)
+TwentyOne_Day0 <- subset (TwentyOne, idents = "1")
+TwentyOne_Day3 <- subset (TwentyOne, idents = "2")
+TwentyOne_Day7 <- subset (TwentyOne, idents = "3")
+TwentyOne_Day0 <- SetIdent(TwentyOne_Day0, value = TwentyOne_Day0@meta.data$seurat_clusters)
+table(Idents(TwentyOne_Day0))
+TwentyOne_Day3 <- SetIdent(TwentyOne_Day3, value = TwentyOne_Day3@meta.data$seurat_clusters)
+table(Idents(TwentyOne_Day3))
+TwentyOne_Day7 <- SetIdent(TwentyOne_Day7, value = TwentyOne_Day7@meta.data$seurat_clusters)
+table(Idents(TwentyOne_Day7))
+
+#Eight
+Eight <- subset (organoids, idents = "8")
+Eight <- SetIdent(Eight, value = Eight@meta.data$Time)
+Eight_Day3 <- subset (Eight, idents = "2")
+Eight_Day7 <- subset (Eight, idents = "3")
+Eight_Day3 <- SetIdent(Eight_Day3, value = Eight_Day3@meta.data$seurat_clusters)
+table(Idents(Eight_Day3))
+Eight_Day7 <- SetIdent(Eight_Day7, value = Eight_Day7@meta.data$seurat_clusters)
+table(Idents(Eight_Day7))
+```
+
+```{r}
+#Figure 1F
+#Adding a condition.celltype metadata variable 
+organoids <- SetIdent(organoids, value = organoids@meta.data$OxygenCondition)
+organoids$condition.celltype  <- paste       (Idents (organoids), organoids$celltype, sep = "_")
+organoids$OxygenCondition        <- Idents      (organoids)
+       Idents (organoids) <- "condition.celltype"
+Idents(organoids) <- factor(Idents(organoids),
+                            levels = c("20_CTB 1",  "8_CTB 1",  "3_CTB 1","20_CTB 2",  "8_CTB 2",  "3_CTB 2", "20_cCTB",  "8_cCTB",  "3_cCTB",
+               "20_EVT",  "8_EVT",  "3_EVT","20_SCTp 1",  "8_SCTp 1",  "3_SCTp 1","20_SCTp 2",  "8_SCTp 2",  "3_SCTp 2"))
+
+pdf("allmarkers_DotPlot.pdf", width = 12, height = 10)
+DotPlot (organoids,
+         features  = c("ELF5",
+                       "PAGE4",
+                      "BCAM",
+                        "TP63",
+                       "TEAD4",
+                       "TAGLN",
+                       "ITGA2",
+                       "NOTCH1",
+                       "ITGA5",
+                       "HLA-G",
+                       "ITGA1",
+                       "NOTUM",
+                      "ADAM12",
+                      "CGB8",
+                      "CYP19A1",
+                      "ERVFRD-1"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+```{r}
+#Supplemental Figure 1D
+pdf         ("UMAP_Time.pdf", height = 5, width = 9)
+UMAPPlot (trophoblastsFINAL, split.by= "OxygenCondition",
+          label   = FALSE,
+          order = TRUE,
+          pt.size = 0.5,
+          cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'cCTB'   = '#AE017E',
+                      'EVT'    = '#FFD92F',
+                      'SCTp 1' = '#8C510A',
+                      'SCTp 2' = '#FF7F00')) + NoLegend()
+dev.off     ()
+```
+
+```{r}
+#Supplemental Figure 1E
+#Adding a Type.celltype metadata variable 
+trophoblastsFINAL <- SetIdent(trophoblastsFINAL, value = trophoblastsFINAL@meta.data$Type)
+trophoblastsFINAL $Type.celltype  <- paste       (Idents (trophoblastsFINAL ), trophoblastsFINAL $celltype, sep = "_")
+trophoblastsFINAL $Type        <- Idents      (trophoblastsFINAL)
+       Idents (trophoblastsFINAL) <- "Type.celltype"
+Idents(trophoblastsFINAL) <- factor(Idents(trophoblastsFINAL),
+                            levels = c("in vivo_CTB 1",  "in vitro_CTB 1","in vivo_CTB 2",  "in vitro_CTB 2", "in vivo_cCTB",  "in vitro_cCTB",
+               "in vivo_EVT",  "in vitro_EVT", "in vivo_SCTp 1",  "in vitro_SCTp 1",  "in vivo_SCTp 2",  "in vitro_SCTp 2"))
+
+pdf("allmarkers_invitro_invivo_DotPlot.pdf", width = 12, height = 8)
+DotPlot (trophoblastsFINAL,
+         features  = c("ELF5",
+                       "PAGE4",
+                      "BCAM",
+                        "TP63",
+                       "TEAD4",
+                       "TAGLN",
+                       "ITGA2",
+                       "NOTCH1",
+                       "ITGA5",
+                       "HLA-G",
+                       "ITGA1",
+                       "NOTUM",
+                      "ADAM12",
+                      "CGB8",
+                      "CYP19A1",
+                      "ERVFRD-1",
+                      "MKI67",
+                      "CCNA2"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+```{r}
+#Supplemental Figure 1F
+#Splitting dataset into CT30 (XX) and CT29 (XY) cells
+genes <- c("DDX3Y", "RPS4Y1", "UTY", "KDM5D", "EIF1AY", "XIST")
+
+expr <- FetchData(organoids, vars = genes)
+
+organoids$Sex <- ifelse(
+  (
+    expr$DDX3Y  > 0 |
+    expr$RPS4Y1 > 0 |
+    expr$UTY    > 0 |
+    expr$KDM5D  > 0 |
+    expr$EIF1AY > 0
+  ) & expr$XIST == 0,
+  "XY",
+  "XX"
+)
+
+#UMAP
+organoids <- SetIdent(organoids, value = organoids@meta.data$Sex)
+table(organoids$Sex)
+pdf         ("UMAP_CT29_CT30.pdf", height = 5, width = 9)
+UMAPPlot (organoids, split.by= "Sex",
+          label   = FALSE,
+          order = TRUE,
+          pt.size = 0.5,
+          cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'cCTB'   = '#AE017E',
+                      'EVT'    = '#FFD92F',
+                      'SCTp 1' = '#8C510A',
+                      'SCTp 2' = '#FF7F00')) + NoLegend()
+dev.off     ()
+```
+
+```{r}
+#Supplemental Figure 1G
+#CT30
+XX <- subset(organoids, idents = "XX")
+
+XX <- SetIdent(XX, value = XX@meta.data$OxygenCondition)
+
+XX_21 <- subset(XX, idents = "20")
+XX_3 <- subset(XX, idents = "3")
+XX_8 <- subset(XX, idents = "8")
+
+XX_21 <- SetIdent(XX_21, value = XX_21@meta.data$seurat_clusters)
+table(Idents(XX_21))
+
+XX_3 <- SetIdent(XX_3, value = XX_3@meta.data$seurat_clusters)
+table(Idents(XX_3))
+
+XX_8 <- SetIdent(XX_8, value = XX_8@meta.data$seurat_clusters)
+table(Idents(XX_8))
+
+# CT29
+XY <- subset(organoids, idents = "XY")
+
+XY <- SetIdent(XY, value = XY@meta.data$OxygenCondition)
+
+XY_21 <- subset(XY, idents = "20")
+XY_3 <- subset(XY, idents = "3")
+XY_8 <- subset(XY, idents = "8")
+
+XY_21 <- SetIdent(XY_21, value = XY_21@meta.data$seurat_clusters)
+table(Idents(XY_21))
+
+XY_3 <- SetIdent(XY_3, value = XY_3@meta.data$seurat_clusters)
+table(Idents(XY_3))
+
+XY_8 <- SetIdent(XY_8, value = XY_8@meta.data$seurat_clusters)
+table(Idents(XY_8))
+```
+
+

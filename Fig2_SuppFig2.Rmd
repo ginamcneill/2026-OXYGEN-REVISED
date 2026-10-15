@@ -1,0 +1,701 @@
+---
+title: "Fig2_SuppFig2"
+output: html_document
+date: "2025-09-03"
+---
+```{r}
+library(monocle3)
+library(Seurat)
+library(SeuratWrappers)
+library(ggplot2)
+library(patchwork)
+library(tibble)
+library(ggbeeswarm)
+library(dplyr)
+library(ggpubr)
+```
+
+```{r}
+#Figure 2A
+SCTp <- subset (organoids, idents = c("SCTp 1", "SCTp 2"))
+SCTp <- SetIdent(SCTp, value = SCTp@meta.data$OxygenCondition)
+Idents(SCTp) <- factor(Idents(SCTp),
+                            levels = c("20",  "8",  "3"))
+
+pdf("SCTSignature.pdf", width = 19, height = 3)
+DotPlot (SCTp,
+         features  = c("ERVW-1", "ERVFRD-1", "ERVV-1", "ERVV-2", "ERV3-1", "ERVH48-1", "ERVMER34-1", "SLC1A5", "MFSD2A", "CGA", "CGB1", "CGB2", "CGB5", "CGB7", "CGB8", "INSL4", "LEP", "HSD17B1", "PSG1", "PSG2", "PSG3", "PSG4", "PSG5", "PSG6", "PSG8", "PSG9", "PSG11", "SDC1", "GCM1"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+
+```{r}
+#Figure 2B
+#Monocle3 Analysis on SCTLineage
+SCTlineage <- subset (organoids, idents = c("CTB 1", "CTB 2", "SCTp 1", "SCTp 2"))
+rm(organoids)
+SCT.monocle3 <- as.cell_data_set(SCTlineage, assay = "RNA")
+rm(SCTlineage)
+SCT.monocle3 <- estimate_size_factors (SCT.monocle3)
+SCT.monocle3 <- cluster_cells         (SCT.monocle3,
+                                       reduction_method = c("UMAP"),
+                                       cluster_method   = "leiden",
+                                       partition_qval   = 0.05,
+                                       resolution       = 0.00015)
+
+p1  <- plot_cells (SCT.monocle3,                               show_trajectory_graph = FALSE)
+p2  <- plot_cells (SCT.monocle3, color_cells_by = "partition", show_trajectory_graph = FALSE)
+wrap_plots        (p1, p2)
+SCT.monocle3 <- learn_graph (SCT.monocle3, use_partition = FALSE, close_loop = TRUE)
+
+get_earliest_principal_node <- function(SCT.monocle3, time_bin="1"){
+  cell_ids <- which(colData(SCT.monocle3)[, "Time"] == time_bin)
+  
+  closest_vertex <-
+  SCT.monocle3@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(SCT.monocle3), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(SCT.monocle3)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+SCT.monocle3 <- order_cells(SCT.monocle3, root_pr_nodes=get_earliest_principal_node(SCT.monocle3))
+
+#Add pseudotime values back into Seurat object
+SCT.monocle3$monocle3_pseudotime <- pseudotime(SCT.monocle3)
+SCTlineage$pseudotime <- pseudotime(SCT.monocle3)
+
+#SCTLineage UMAP
+pdf         ("UMAP_SCTLineage.pdf", height = 5, width = 9)
+UMAPPlot(SCTlineage, label=FALSE, order= TRUE, pt.size = 1, 
+         cols    = c('CTB 1'  = '#00C19A',
+                      'CTB 2'  = '#999999',
+                      'SCTp 1'   = '#8C510A',
+                      'SCTp 2'    = '#FF7F00'))
+dev.off     ()
+
+#SCTLineage Monocle3 UMAP
+pdf         ("UMAP_Monocle3_SCT.pdf", height = 5, width = 9)
+plot_cells (SCT.monocle3,
+            color_cells_by = "pseudotime",
+            label_cell_groups             = FALSE,
+            label_leaves                  = FALSE,
+            label_branch_points           = FALSE,
+            graph_label_size              = 0,
+            cell_size                     = 1,
+            trajectory_graph_color        = "black",
+            trajectory_graph_segment_size = 1)
+dev.off     ()
+```
+
+```{r}
+#Figure 2C
+SCTlineage <- SetIdent(SCTlineage, value = SCTlineage@meta.data$OxygenCondition)
+SCT.monocle3 <- as.cell_data_set(SCTlineage, assay = "RNA")
+pt_df_sdz <- data.frame(
+  pseudotime = colData(SCT.monocle3)$pseudotime,
+  Condition = colData(SCT.monocle3)$OxygenCondition,
+  cell_type = colData(SCT.monocle3)$celltype
+)
+cell_type_colors <- c(
+  'CTB 1'  = '#00C19A',
+  'CTB 2'  = '#999999',
+  'SCTp 1'   = '#8C510A',
+  'SCTp 2'    = '#FF7F00')
+
+condition_colors <- c(
+  "20" = "darkorchid",
+  "3" = "aquamarine3",
+  "8" = "palegreen1")
+pdf         ("DensityPlot_SCT_3.pdf", height = 7, width = 10)
+ggplot(pt_df_sdz, aes(x = pseudotime, y = Condition)) +
+  geom_quasirandom(
+    aes(color = cell_type),
+    groupOnX = FALSE,
+    varwidth = FALSE,
+    size = 1,
+    alpha = 1
+  ) +
+  scale_color_manual(values = cell_type_colors) +
+  labs(x = NULL, y = "Condition", color = "Cell Type") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    panel.grid.major.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.title.y = element_text(angle = 90, vjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    plot.margin = margin(0, 10, 0, 10)
+  )+ NoLegend()
+dev.off     ()
+
+pdf         ("DensityLineGraph_SCT.pdf", height = 7, width = 10)
+ggplot(pt_df_sdz, aes(x = pseudotime, color = Condition)) +
+  geom_density(size = 1.5) +
+  scale_color_manual(values = condition_colors) +
+  labs(x = "Pseudotime", y = "Density") +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "none",
+    plot.margin = margin(0, 10, 0, 10)
+  )
+dev.off     ()
+
+#Significance Testing
+kruskal.test(pseudotime ~ OxygenCondition, data = SCTlineage@meta.data)
+
+# Run pairwise Wilcoxon test
+pw <- pairwise.wilcox.test(
+  SCTlineage$pseudotime,
+  SCTlineage$OxygenCondition,
+  p.adjust.method = "BH"
+)
+```
+
+```{r}
+#Figure 2F
+df <- read_excel("~/Desktop/VolumehTSC.xlsx")
+df$Condition <- factor(df$Condition)
+df$Replicate <- factor(df$Replicate)
+rep_means <- df %>%
+  group_by(Condition, Replicate) %>%
+  summarize(mean_size = mean(Size), .groups = "drop")
+# Plot
+pdf         ("hTSCVolume_Super.pdf", height = 5, width = 9)
+ggplot(df, aes(x = Condition, y = Size)) +
+
+  # Individual organoids
+  geom_quasirandom(
+    aes(color = Replicate),
+    width = 0.28,
+    alpha = 0.65,
+    size = 2
+  ) +
+
+  # Biological replicate means
+  geom_point(
+    data = rep_means,
+    aes(y = mean_size, fill = Replicate),
+    shape = 21,          # filled circle with border
+    color = "black",
+    stroke = 0.8,
+    size = 5
+  ) +
+
+  # Statistics (performed on replicate means)
+  stat_compare_means(
+    data = rep_means,
+    aes(y = mean_size),
+    method = "t.test",
+    label = "p.format"
+  ) +
+
+  labs(
+    x = "",
+    y = expression("Organoid volume ("*mu*m^3*")")
+  ) +
+
+  scale_color_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+  scale_fill_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "right",
+    legend.title = element_blank(),
+    axis.title.y = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    axis.line = element_line(linewidth = 0.8)
+  )
+dev.off     ()
+```
+
+```{r}
+#Figure 2F and 2G
+df <- read_excel("~/Desktop/RatiohTSC.xlsx")
+df$Condition <- factor(df$Condition)
+df$Replicate <- factor(df$Replicate)
+rep_means <- df %>%
+  group_by(Condition, Replicate) %>%
+  summarize(mean_size = mean(Size), .groups = "drop")
+# Plot
+pdf         ("hTSCRatio_Super.pdf", height = 5, width = 9)
+ggplot(df, aes(x = Condition, y = Size)) +
+
+  # Individual organoids
+  geom_quasirandom(
+    aes(color = Replicate),
+    width = 0.28,
+    alpha = 0.65,
+    size = 2
+  ) +
+
+  # Biological replicate means
+  geom_point(
+    data = rep_means,
+    aes(y = mean_size, fill = Replicate),
+    shape = 21,          # filled circle with border
+    color = "black",
+    stroke = 0.8,
+    size = 5
+  ) +
+
+  # Statistics (performed on replicate means)
+  stat_compare_means(
+    data = rep_means,
+    aes(y = mean_size),
+    method = "t.test",
+    label = "p.format"
+  ) +
+
+  labs(
+  x = "",
+  y = "hTSC Ratio"
+) +
+
+scale_y_continuous(
+  limits = c(0, 1),
+  breaks = seq(0, 1, by = 0.2),
+  expand = expansion(mult = c(0, 0.05))
+) +
+
+scale_color_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+scale_fill_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "right",
+    legend.title = element_blank(),
+    axis.title.y = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    axis.line = element_line(linewidth = 0.8)
+  )
+dev.off     ()
+
+#REPEAT FOR hTSC Volume Data#
+```
+
+```{r}
+#Supplemental Figure 2A
+trophoblasts.monocle3 <- as.cell_data_set(organoids, assay = "RNA")
+rm(organoids)
+trophoblasts.monocle3 <- estimate_size_factors (trophoblasts.monocle3)
+trophoblasts.monocle3 <- cluster_cells         (trophoblasts.monocle3,
+                                       reduction_method = c("UMAP"),
+                                       cluster_method   = "leiden",
+                                       partition_qval   = 0.05,
+                                       resolution       = 0.00045)
+
+p1  <- plot_cells (trophoblasts.monocle3,                               show_trajectory_graph = FALSE)
+p2  <- plot_cells (trophoblasts.monocle3, color_cells_by = "partition", show_trajectory_graph = FALSE)
+wrap_plots        (p1, p2)
+trophoblasts.monocle3 <- learn_graph (trophoblasts.monocle3, use_partition = FALSE, close_loop = TRUE)
+get_earliest_principal_node <- function(trophoblasts.monocle3, time_bin="1"){
+  cell_ids <- which(colData(trophoblasts.monocle3)[, "Time"] == time_bin)
+  
+  closest_vertex <-
+  trophoblasts.monocle3@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(trophoblasts.monocle3), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(trophoblasts.monocle3)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+  
+  root_pr_nodes
+}
+trophoblasts.monocle3 <- order_cells(trophoblasts.monocle3, root_pr_nodes=get_earliest_principal_node(trophoblasts.monocle3))
+
+pdf         ("UMAP_Monocle3_All.pdf", height = 5, width = 9)
+plot_cells (trophoblasts.monocle3,
+            color_cells_by = "pseudotime",
+            label_cell_groups             = FALSE,
+            label_leaves                  = FALSE,
+            label_branch_points           = FALSE,
+            graph_label_size              = 0,
+            cell_size                     = 1,
+            trajectory_graph_color        = "black",
+            trajectory_graph_segment_size = 1)
+dev.off     ()
+```
+
+
+```{r}
+#Supplemental Figure 2B
+SCTlineage <- SetIdent(SCTlineage, value = SCTlineage@meta.data$celltype)
+
+pdf("SCTlineage_Celltype.pdf", width = 19, height = 3)
+DotPlot (SCTp,
+         features  = c("PAGE4","BCAM","TP63","TEAD4","ERVW-1", "ERVFRD-1", "ERVV-1", "ERVV-2", "ERV3-1", "ERVH48-1", "ERVMER34-1", "SLC1A5", "MFSD2A", "CGA", "CGB1", "CGB2", "CGB5", "CGB7", "CGB8", "INSL4", "LEP", "HSD17B1", "PSG1", "PSG2", "PSG3", "PSG4", "PSG5", "PSG6", "PSG8", "PSG9", "PSG11", "SDC1", "GCM1"),
+         assay     = "RNA",
+         cols      = c("lightgrey", "red"),
+         col.min   = 0,
+         col.max   = 1,
+         dot.min   = 0,
+         dot.scale = 15)
+dev.off
+```
+
+```{r}
+#Supplemental Figure 2D and 2E
+df <- read_excel("~/Desktop/VolumePOrg.xlsx")
+df$Condition <- factor(df$Condition)
+df$Replicate <- factor(df$Replicate)
+rep_means <- df %>%
+  group_by(Condition, Replicate) %>%
+  summarize(mean_size = mean(Size), .groups = "drop")
+# Plot
+pdf         ("POrgVolume_Super.pdf", height = 5, width = 9)
+ggplot(df, aes(x = Condition, y = Size)) +
+
+  # Individual organoids
+  geom_quasirandom(
+    aes(color = Replicate),
+    width = 0.28,
+    alpha = 0.65,
+    size = 2
+  ) +
+
+  # Biological replicate means
+  geom_point(
+    data = rep_means,
+    aes(y = mean_size, fill = Replicate),
+    shape = 21,          # filled circle with border
+    color = "black",
+    stroke = 0.8,
+    size = 5
+  ) +
+
+  # Statistics (performed on replicate means)
+  stat_compare_means(
+    data = rep_means,
+    aes(y = mean_size),
+    method = "t.test",
+    label = "p.format"
+  ) +
+
+  labs(
+    x = "",
+    y = expression("Organoid volume ("*mu*m^3*")")
+  ) +
+
+  scale_color_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+  scale_fill_manual(values = c("#D55E00", "#009E73", "#0072B2")) +
+
+  theme_classic(base_size = 16) +
+  theme(
+    legend.position = "right",
+    legend.title = element_blank(),
+    axis.title.y = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    axis.line = element_line(linewidth = 0.8)
+  )
+dev.off     ()
+
+#REPEAT FOR P-Org Ratio Data#
+```
+
+```{r}
+#Data preparation for SCT-OUT Bulk RNAseq Analysis
+library(edgeR) 
+library(PCAtools)
+library(sva)
+library(ComplexHeatmap)
+library(rtracklayer)
+library(dplyr)
+
+## new folders
+#| label: folders
+plot_dir <- "Paper_Figures"
+if (!file.exists(plot_dir)) {
+    dir.create(plot_dir, showWarnings = FALSE, recursive = FALSE)
+
+## Filter to get only mRNA
+
+### get all polyadenylated mRNA
+
+#| label: filter protein_coding
+
+gtf_file <- "/tachyon/groups/gbioinfo/DB/GENCODE/Human/release_38/gencode.v38.annotation.gtf"
+#gtf_file <- "gencode.v38.annotation.gtf"
+## downloaded from https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.annotation.gtf.gz 
+
+gtf <- rtracklayer::import(gtf_file)
+gtftx <- subset(gtf, type == "transcript")
+
+transcripts <- data.frame(gtftx, stringsAsFactors = FALSE) %>%
+  dplyr::select(transcript_id, seqnames, start, end, strand, source, 
+                gene_id, gene_type, gene_name, transcript_name)
+length(unique(transcripts$gene_id))
+#[1] 60649
+transcripts_protein_coding <- transcripts %>% dplyr::filter(gene_type == "protein_coding")
+# remove SV
+all_ensembl_genes <- unlist(lapply(transcripts_protein_coding$gene_id,  sub, pattern = "\\.\\d+$", replacement = ""))
+length(unique(all_ensembl_genes))
+
+### get the histone genes
+#| label: histone genes
+histones <- read.delim("HGNC.864")
+## downloaded from: https://www.genenames.org/cgi-bin/genegroup/download?id=864&type=branch on 19. May 2026
+dim(histones)
+#[1] 118  13
+length(unique(histones$Approved.symbol))
+#[1] 118
+length(unique(histones$Ensembl.gene.ID))
+#[1] 118
+
+sum(histones$Ensembl.gene.ID %in% all_ensembl_genes)
+#[1] 94
+sum(histones$Ensembl.gene.ID %in% unique(all_ensembl_genes))
+#[1] 94
+
+histones$Ensembl.gene.ID[!(histones$Ensembl.gene.ID %in% all_ensembl_genes)]
+#  [1] "ENSG00000216331" "ENSG00000188662" "ENSG00000218690" "ENSG00000288825" "ENSG00000288859" "ENSG00000216436" "ENSG00000242387"
+#  [8] "ENSG00000234816" "ENSG00000218281" "ENSG00000285944" "ENSG00000249467" "ENSG00000285989" "ENSG00000217646" "ENSG00000220323"
+# [15] "ENSG00000261716" "ENSG00000181201" "ENSG00000178762" "ENSG00000223497" "ENSG00000290320" "ENSG00000235946" ""               
+# [22] "ENSG00000277720" "ENSG00000220875" "ENSG00000217862"
+
+histones[!(histones$Ensembl.gene.ID %in% all_ensembl_genes),c("Approved.symbol","Locus.type","Ensembl.gene.ID")]
+
+
+### Remove unwanted genes
+#| label: remove unanted genes
+sum(unique(all_ensembl_genes) %in% histones$Ensembl.gene.ID)
+#[1] 94
+
+sum(!(unique(all_ensembl_genes) %in% histones$Ensembl.gene.ID))
+# [1] 19861   # 19955 - 94
+
+polyA_ensembl_genes <- unique(all_ensembl_genes)[!(unique(all_ensembl_genes) %in% histones$Ensembl.gene.ID)]
+
+length(polyA_ensembl_genes)
+#[1] 19861
+length(unique(polyA_ensembl_genes))
+
+
+## loading all the data
+
+### original data
+#| label: load old data
+all_counts_orig <- read.delim("3670Fa3851F_raw_counts.uniqueID.20251006.tab")
+rownames(all_counts_orig) <- all_counts_orig$uniqueID
+
+all_counts_orig_selected <- all_counts_orig[,c(1:5,13:14,19:20)]
+
+### new data
+
+#| label: load new data
+all_counts_new <- read.delim("4279F_raw_counts.uniqueID.20260805.tab", stringsAsFactors = FALSE)
+rownames(all_counts_new) <- all_counts_new$uniqueID
+
+
+all_counts_new_selected <- all_counts_new[,c(1:5,8:9,12:13,16:17)]
+
+### combine
+
+#| label: combine new and old data
+identical(rownames(all_counts_orig_selected),rownames(all_counts_new_selected))
+
+all_counts_selected <- cbind(all_counts_new_selected,all_counts_orig_selected[,-c(1:5)])
+dim(all_counts_selected)
+
+### subset Galaxy generated table
+
+#| label: select mRNA genes
+
+dim(all_counts_selected)
+# [1] 60605    24    # this is not the same as above from the gtf ("60649")
+
+sum(all_counts_selected$ENSEMBLID %in% polyA_ensembl_genes)
+# [1] 19843
+counts_selected <- all_counts_selected[all_counts_selected$ENSEMBLID %in% polyA_ensembl_genes,]
+# [1] 19843    24
+colnames(counts_selected)
+
+
+## set up metadata
+
+#| label: metadata
+
+# split column names
+parts <- strsplit(colnames(counts_selected)[6:ncol(counts_selected)], "_")
+
+sample <- colnames(counts_selected)[6:ncol(counts_selected)]
+donor_sample <- sapply(parts, "[[", 1)
+oxygen <- sapply(parts, "[[", 2)
+time_point <- sapply(parts, "[[", 3)
+
+
+donor <- donor_sample
+original_donor <- donor_sample
+
+
+# ---- round (compute instead of hardcoding) ----
+# example: based on replicate id (r1/r4/r6...)
+round <- ifelse(donor_sample %in% c("X113b", "Y060"), "a", "b")
+
+# ---- metadata ----
+metadata_selected <- data.frame(
+  sample = sample,
+  original_donor = original_donor,
+  donor = donor,
+  oxygen = oxygen,
+  time_point = time_point
+)
+
+rownames(metadata_selected) <- metadata_selected$sample
+
+# write
+write.table(metadata_selected,
+            file = "metadata.tab",
+            sep = "\t",
+            row.names = FALSE,
+            quote = FALSE)
+
+## Batch correction by donor using ComBat-seq
+
+
+#| label: running ComBat-Seq
+
+counts_selected.CBSeq_byD <- ComBat_seq(as.matrix(counts_selected[,-c(1:5)]), batch=metadata_selected$donor, group=NULL)
+```
+
+```{r}
+#Supplemental Figure 2G
+custom_colors <- c(
+  p21 = "#B49FDC",   
+  p2  = "#66B2FC"   
+)
+
+counts_sel.CBSeq_byD.log.cpm.pca <- pca(edgeR:::cpm(counts_selected.CBSeq_byD, log=TRUE), 
+                                        metadata = metadata_selected, removeVar = 0.1)
+
+PCA <- biplot(counts_sel.CBSeq_byD.log.cpm.pca,
+              colby = "oxygen",
+              colkey = custom_colors,
+              shape = "donor",
+              pointSize = 5,
+              legendPosition = 'right',
+              title = "PCA by Oxygen.",
+              encircle = FALSE,
+              lab = NULL) +
+  labs(fill = NULL) +
+  coord_fixed() +
+  coord_cartesian(xlim = c(-60, 60), ylim = c(-60, 60))
+
+
+print(PCA)
+
+
+
+
+
+pdf(paste0(plot_dir, "/SFigure_2G.pdf"), width = 7.88, height = 8)
+print(PCA)
+dev.off()
+```
+
+```{r}
+#Supplemental Figure 2H
+#| label: defining genes for heatmap
+VCTfusing <- c("ERVW-1", "ERVFRD-1")
+
+SCT <- c( "PSG4","CYP19A1", "MFSD2A", "GCM1", "CGB3", "KISS1", "SDC1", "CGB8")
+
+TO <- c("GATA2", "GATA3")
+
+CTB <- c("FBN2", "BCAM", "CDH1", "TP63", "MKI67", "WLS", "TEAD4")
+
+
+# Combine all into one ordered list
+genes1 <- c(VCTfusing, SCT, TO, CTB)
+
+# doublew check
+genes1
+genes1 %in% rownames(counts_selected)
+
+### data to plot
+
+#### calculate cpm values
+
+#| label: cpm values
+all_counts_selected.bc.cpm <- edgeR:::cpm(counts_selected.CBSeq_byD, log=FALSE)
+
+data2plot1bc <- data.frame()
+
+for (gene in unique(genes1)) {
+    data2plot1bc <- rbind(data2plot1bc,
+                          all_counts_selected.bc.cpm[rownames(all_counts_selected.bc.cpm) == gene, ])
+}
+
+rownames(data2plot1bc) <- genes1
+colnames(data2plot1bc) <- colnames(all_counts_selected.bc.cpm)
+
+
+# Scale and center
+data2plot1bc.sc <- t(scale(t(data2plot1bc)))
+colnames(data2plot1bc)
+
+#### assemble data in custom order
+
+data2plot1bc.sc <- t(scale(t(data2plot1bc)))
+colnames(data2plot1bc.sc)
+# Custom order
+
+custom_order <- c(
+  "Z143_p21_r4",
+  "Z228_p21_r4",
+  "Z149_p21_r4",
+  "X113b_p21_r6",
+  "Y060_p21_r4",
+
+  "Z143_p2_r4",
+  "Z228_p2_r4",
+  "Z149_p2_r4",
+  "X113b_p2_r6",
+  "Y060_p2_r4"
+)
+
+
+custom_order <- custom_order[custom_order %in% colnames(data2plot1bc.sc)]
+
+# Reorder the columns in the data frame 
+data2plot1bc.sc <- data2plot1bc.sc[, custom_order]
+
+
+length(custom_order)
+custom_order
+
+colnames(data2plot1bc.sc)
+
+pdf(file.path(plot_dir, "SFigure_2.pdf"), height = 10, width = 12)
+
+Heatmap(data2plot1bc.sc, cluster_columns = FALSE, cluster_rows = FALSE,
+        heatmap_legend_param = list(title = "cpm (c/s)", color_bar = "continuous"),
+        column_title = "TO identity")
+
+dev.off()
+### and plot
+#| label: Fig 2 G
+
+pdf(file.path(plot_dir, "SFigure_2H.pdf"), height = 10, width = 12)
+
+pheatmap(
+  data2plot1bc.sc,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  show_rownames = TRUE,
+  border_color = NA,
+  main = "Marker Expression",
+  name = "centred and scaled",
+  breaks = seq(-2, 2, length.out = 101)
+)
+
+dev.off()
+```
+
